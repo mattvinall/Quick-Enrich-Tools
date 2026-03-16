@@ -1,12 +1,13 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import Image from "next/image";
+import "./globals.css";
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'QuickEnrich Tools',
-  description: 'Data enrichment tools for your business',
+  title: "QuickEnrich Tools",
+  description: "Free data enrichment tools by QuickEnrich",
 };
 
 export default function RootLayout({
@@ -16,20 +17,24 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-white min-h-screen`}>
-        <header className="border-b border-border">
-          <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-            <a
-              href="/"
-              className="text-xl font-semibold text-text-primary hover:text-primary transition-colors"
-            >
-              QuickEnrich Tools
+      <body className={`${inter.className} min-h-screen`}>
+        <header className="border-b border-[#e5e7eb]">
+          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+            <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              <Image
+                src="/quickenrich-logo.png"
+                alt="QuickEnrich"
+                width={140}
+                height={32}
+                className="h-8 w-auto"
+                priority
+              />
             </a>
             <a
               href="https://quickenrich.io"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-text-secondary hover:text-primary transition-colors"
+              className="text-sm text-[#6b7280] hover:text-[#2b7ec8] transition-colors"
             >
               quickenrich.io
             </a>

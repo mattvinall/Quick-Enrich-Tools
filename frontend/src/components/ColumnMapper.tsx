@@ -14,12 +14,48 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const COMPANY_REGEX = /company|name|org|business|brand/i;
-const LOCATION_REGEX = /location|city|state|address|geo|region/i;
+// Ordered by specificity — first match wins
+const COMPANY_PATTERNS = [
+  /company.?name/i,
+  /company/i,
+  /org(anization)?/i,
+  /business.?name/i,
+  /business/i,
+  /brand/i,
+  /^name$/i,
+];
+
+const LOCATION_PATTERNS = [
+  /location/i,
+  /city.?state/i,
+  /address/i,
+  /city/i,
+  /state/i,
+  /region/i,
+  /geo/i,
+  /hq/i,
+  /headquarters/i,
+];
 
 export function autoDetectColumns(headers: string[]): { company: string; location: string } {
-  const company = headers.find((h) => COMPANY_REGEX.test(h)) ?? "";
-  const location = headers.find((h) => LOCATION_REGEX.test(h)) ?? "";
+  let company = "";
+  for (const pattern of COMPANY_PATTERNS) {
+    const match = headers.find((h) => pattern.test(h));
+    if (match) {
+      company = match;
+      break;
+    }
+  }
+
+  let location = "";
+  for (const pattern of LOCATION_PATTERNS) {
+    const match = headers.find((h) => pattern.test(h) && h !== company);
+    if (match) {
+      location = match;
+      break;
+    }
+  }
+
   return { company, location };
 }
 
@@ -85,7 +121,6 @@ export default function ColumnMapper({
                 <SelectValue placeholder="Select a column…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— Select a column —</SelectItem>
                 {headers.map((header) => (
                   <SelectItem key={header} value={header}>
                     {header}
@@ -108,7 +143,7 @@ export default function ColumnMapper({
             animate={locationChanged ? { scale: [1, 1.01, 1] } : {}}
             transition={{ duration: 0.25 }}
           >
-            <Select value={locationColumn} onValueChange={onLocationColumnChange}>
+            <Select value={locationColumn || "__none__"} onValueChange={(v) => onLocationColumnChange(v === "__none__" ? "" : v)}>
               <SelectTrigger
                 className={cn(
                   locationColumn &&
@@ -118,7 +153,7 @@ export default function ColumnMapper({
                 <SelectValue placeholder="None" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— None —</SelectItem>
+                <SelectItem value="__none__">— None —</SelectItem>
                 {headers.map((header) => (
                   <SelectItem key={header} value={header}>
                     {header}

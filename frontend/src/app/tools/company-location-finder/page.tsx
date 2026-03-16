@@ -108,15 +108,16 @@ export default function CompanyLocationFinderPage() {
   // ------------------------------------------------------------------
   // Handlers
   // ------------------------------------------------------------------
-  function handleFileSelected(
-    selectedFile: File,
+  function handleDataReady(
+    selectedFile: File | null,
     parsedHeaders: string[],
-    parsedPreview: Record<string, string>[],
+    parsedRows: Record<string, string>[],
+    _rawText?: string,
   ) {
     setFile(selectedFile);
     setHeaders(parsedHeaders);
-    setPreview(parsedPreview);
-    setAllRows(parsedPreview); // UploadZone only gives preview; full data sent via file
+    setPreview(parsedRows.slice(0, 5));
+    setAllRows(parsedRows);
 
     const detected = autoDetectColumns(parsedHeaders);
     setCompanyColumn(detected.company);
@@ -236,7 +237,7 @@ export default function CompanyLocationFinderPage() {
             >
               {/* ---- PHASE: input ---- */}
               {phase === 'input' && (
-                <UploadZone onFileSelected={handleFileSelected} />
+                <UploadZone onDataReady={handleDataReady} />
               )}
 
               {/* ---- PHASE: configure ---- */}
