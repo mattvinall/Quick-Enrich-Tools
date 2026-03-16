@@ -362,7 +362,7 @@ async def run_pipeline(ctx: dict[str, object], job_id: str) -> None:
 
 
 def _parse_redis_settings(redis_url: str) -> RedisSettings:
-    """Parse a redis:// URL into an arq RedisSettings instance."""
+    """Parse a redis:// or rediss:// URL into an arq RedisSettings instance."""
     from urllib.parse import urlparse
 
     parsed = urlparse(redis_url)
@@ -370,8 +370,9 @@ def _parse_redis_settings(redis_url: str) -> RedisSettings:
     port = parsed.port or 6379
     password = parsed.password or None
     db_index = int(parsed.path.lstrip("/")) if parsed.path and parsed.path != "/" else 0
+    use_ssl = parsed.scheme == "rediss"
 
-    return RedisSettings(host=host, port=port, password=password, database=db_index)
+    return RedisSettings(host=host, port=port, password=password, database=db_index, ssl=use_ssl)
 
 
 class WorkerSettings:
