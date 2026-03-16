@@ -25,39 +25,39 @@ async def enrich_company(
     """
     contacts: list[dict[str, str]] = []
 
-    for title in job_titles:
-        try:
-            response = await client.get(
-                "https://app.quickenrich.io/api/employees/dataset-search",
-                params={"company_url": domain, "title": title},
-                headers={"Authorization": f"Bearer {settings.quickenrich_api_key}"},
-                timeout=15.0,
+    # Send all titles in one comma-separated API call (QuickEnrich supports this)
+    combined_titles = ", ".join(job_titles)
+    try:
+        response = await client.get(
+            "https://app.quickenrich.io/api/employees/dataset-search",
+            params={"company_url": domain, "title": combined_titles},
+            headers={"Authorization": f"Bearer {settings.quickenrich_api_key}"},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # API returns { success, data: [...] } or a bare list
+        if isinstance(data, list):
+            raw_results: list[dict[str, object]] = data
+        elif isinstance(data, dict):
+            raw_results = data.get("data", data.get("results", []))
+        else:
+            raw_results = []
+
+        for record in raw_results[:max_contacts * len(job_titles)]:
+            contacts.append(
+                {
+                    "title": str(record.get("title") or ""),
+                    "first_name": str(record.get("first_name") or ""),
+                    "last_name": str(record.get("last_name") or ""),
+                    "email": str(record.get("email") or ""),
+                    "phone": str(record.get("employee_phone") or record.get("phone") or ""),
+                    "linkedin_url": str(record.get("employee_linkedin") or record.get("linkedin_url") or ""),
+                }
             )
-            response.raise_for_status()
-            data = response.json()
-
-            # API returns { success, data: [...] } or a bare list
-            if isinstance(data, list):
-                raw_results: list[dict[str, object]] = data
-            elif isinstance(data, dict):
-                raw_results = data.get("data", data.get("results", []))
-            else:
-                raw_results = []
-
-            for record in raw_results[:max_contacts]:
-                contacts.append(
-                    {
-                        "title": str(record.get("title") or title),
-                        "first_name": str(record.get("first_name") or ""),
-                        "last_name": str(record.get("last_name") or ""),
-                        "email": str(record.get("email") or ""),
-                        "phone": str(record.get("employee_phone") or record.get("phone") or ""),
-                        "linkedin_url": str(record.get("employee_linkedin") or record.get("linkedin_url") or ""),
-                    }
-                )
-        except Exception as exc:
-            logger.warning("enrich_company error for domain=%s title=%s: %s", domain, title, exc)
-            continue
+    except Exception as exc:
+        logger.warning("enrich_company error for domain=%s titles=%s: %s", domain, combined_titles, exc)
 
     return contacts
 

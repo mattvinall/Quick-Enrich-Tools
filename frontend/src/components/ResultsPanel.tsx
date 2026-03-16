@@ -25,6 +25,8 @@ interface ResultRow {
   contact_name?: string;
   contact_title?: string;
   contact_email?: string;
+  contact_phone?: string;
+  contact_linkedin?: string;
   contact_linkedin?: string;
 }
 
@@ -111,7 +113,9 @@ export default function ResultsPanel({
   const downloadUrl = getDownloadUrl(jobId, token);
 
   // Determine whether enrichment columns are present
-  const hasEnrichment = enrichedCount > 0;
+  // Count actual rows with contact data (not just the prop)
+  const actualEnrichedCount = rows.filter((r) => r.contact_name).length;
+  const hasEnrichment = enrichedCount > 0 || actualEnrichedCount > 0;
 
   useEffect(() => {
     async function fetchRows() {
@@ -121,7 +125,21 @@ export default function ResultsPanel({
         });
         if (!res.ok) return;
         const data = (await res.json()) as PreviewResponse;
-        setRows(data.rows ?? []);
+        // Flatten contacts array into display fields
+        const mapped = (data.rows ?? []).map((row) => {
+          const firstContact = row.contacts?.[0];
+          return {
+            ...row,
+            contact_name: firstContact
+              ? `${firstContact.first_name || ""} ${firstContact.last_name || ""}`.trim() || undefined
+              : undefined,
+            contact_title: firstContact?.title || undefined,
+            contact_email: firstContact?.email || undefined,
+            contact_phone: firstContact?.phone || firstContact?.employee_phone || undefined,
+            contact_linkedin: firstContact?.linkedin_url || firstContact?.employee_linkedin || undefined,
+          };
+        });
+        setRows(mapped);
       } catch {
         // silently fail — download link still works
       } finally {
@@ -199,7 +217,7 @@ export default function ResultsPanel({
       ? [
           {
             label: 'Contacts Enriched',
-            value: enrichedCount,
+            value: actualEnrichedCount || enrichedCount,
             color: 'text-purple-600',
             bg: 'bg-purple-50',
             border: 'border-purple-200',
@@ -364,6 +382,8 @@ export default function ResultsPanel({
                               { key: 'contact_name', label: 'Contact' },
                               { key: 'contact_title', label: 'Title' },
                               { key: 'contact_email', label: 'Email' },
+                              { key: 'contact_phone', label: 'Phone' },
+                              { key: 'contact_linkedin', label: 'LinkedIn' },
                             ]
                           : []),
                       ] as { key: SortKey; label: string }[]
@@ -439,6 +459,16 @@ export default function ResultsPanel({
                               </td>
                               <td className="px-4 py-3 text-text-secondary max-w-[180px] truncate">
                                 {row.contact_email ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 text-text-secondary max-w-[120px] truncate">
+                                {row.contact_phone ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 max-w-[160px] truncate">
+                                {row.contact_linkedin ? (
+                                  <a href={row.contact_linkedin} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                                    Profile
+                                  </a>
+                                ) : '—'}
                               </td>
                             </>
                           )}

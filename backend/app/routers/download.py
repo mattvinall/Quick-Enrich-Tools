@@ -33,15 +33,22 @@ def _assert_token_owns_job(payload: dict[str, str | int], job: Job) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
-def _collect_job_titles(config: dict[str, str | int | bool] | None) -> list[str]:
+def _collect_job_titles(config: dict[str, str | int | bool | list[str]] | None) -> list[str]:
     """Return the ordered list of contact job titles from the job's config."""
     if not config:
         return []
-    titles: list[str] = []
-    for key, value in config.items():
-        if key.startswith("contact_title_") and isinstance(value, str) and value not in titles:
-            titles.append(value)
-    return titles
+    raw = config.get("job_titles", [])
+    if isinstance(raw, list):
+        return [str(t) for t in raw if t]
+    if isinstance(raw, str):
+        import json
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(t) for t in parsed if t]
+        except (json.JSONDecodeError, TypeError):
+            return [t.strip() for t in raw.split(",") if t.strip()]
+    return []
 
 
 def _build_contact_headers(titles: list[str]) -> list[str]:
@@ -71,20 +78,27 @@ def _extract_row(result: JobResult, titles: list[str]) -> list[str]:
 
     base: list[str] = [company_name, location, website, confidence, row_status]
 
-    contacts_by_title: dict[str, dict[str, str]] = {}
+    # Group contacts by searched title (case-insensitive partial match)
     raw_contacts = result.contacts
+    all_contacts: list[dict[str, str]] = []
     if isinstance(raw_contacts, list):
-        for contact in raw_contacts:
-            if isinstance(contact, dict):
-                title = contact.get("job_title") or contact.get("title") or ""
-                contacts_by_title[title] = contact
+        all_contacts = [c for c in raw_contacts if isinstance(c, dict)]
 
     contact_cells: list[str] = []
     for title in titles:
-        contact = contacts_by_title.get(title, {})
-        for field in _CONTACT_FIELDS:
-            field_key = field.lower().replace(" ", "_")
-            contact_cells.append(contact.get(field_key) or contact.get(field) or "")
+        # Find best matching contact for this title
+        contact: dict[str, str] = {}
+        title_lower = title.lower()
+        for c in all_contacts:
+            c_title = (c.get("title") or c.get("job_title") or "").lower()
+            if title_lower in c_title or c_title.startswith(title_lower):
+                contact = c
+                break
+        contact_cells.append(contact.get("first_name", ""))
+        contact_cells.append(contact.get("last_name", ""))
+        contact_cells.append(contact.get("email", ""))
+        contact_cells.append(contact.get("phone") or contact.get("employee_phone", ""))
+        contact_cells.append(contact.get("linkedin_url") or contact.get("employee_linkedin", ""))
 
     return base + contact_cells
 
