@@ -62,6 +62,7 @@ export function autoDetectColumns(headers: string[]): { company: string; locatio
 interface ColumnMapperProps {
   headers: string[];
   preview: Record<string, string>[];
+  totalRows: number;
   companyColumn: string;
   locationColumn: string;
   onCompanyColumnChange: (col: string) => void;
@@ -73,6 +74,7 @@ const PREVIEW_LIMIT = 5;
 export default function ColumnMapper({
   headers,
   preview,
+  totalRows,
   companyColumn,
   locationColumn,
   onCompanyColumnChange,
@@ -275,8 +277,7 @@ export default function ColumnMapper({
             </Card>
 
             <p className="mt-2 text-xs text-text-secondary">
-              Showing {displayRows.length} of {preview.length} row
-              {preview.length !== 1 ? "s" : ""}
+              Preview: {displayRows.length} of {totalRows.toLocaleString()} total rows
             </p>
           </motion.div>
         )}

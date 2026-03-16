@@ -31,7 +31,10 @@ interface ParsedFile {
   file: File;
   headers: string[];
   rows: Record<string, string>[];
+  totalRows: number;
 }
+
+const MAX_ROWS = 100_000;
 
 export default function UploadZone({ onDataReady }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -70,8 +73,14 @@ export default function UploadZone({ onDataReady }: UploadZoneProps) {
             return;
           }
 
+          const totalRows = results.data.length;
+          if (totalRows > MAX_ROWS) {
+            setError(`CSV has ${totalRows.toLocaleString()} rows. Maximum is ${MAX_ROWS.toLocaleString()}.`);
+            return;
+          }
+
           const rows = results.data.slice(0, 5);
-          setParsedFile({ file, headers, rows });
+          setParsedFile({ file, headers, rows, totalRows });
           onDataReady(file, headers, results.data, undefined);
         },
         error: () => {
@@ -177,8 +186,9 @@ export default function UploadZone({ onDataReady }: UploadZoneProps) {
                   {parsedFile.file.name}
                 </p>
                 <p className="text-xs text-text-secondary">
-                  {formatBytes(parsedFile.file.size)} &mdash;{" "}
-                  {parsedFile.headers.length} columns
+                  {parsedFile.totalRows.toLocaleString()} rows &middot;{" "}
+                  {parsedFile.headers.length} columns &middot;{" "}
+                  {formatBytes(parsedFile.file.size)}
                 </p>
               </div>
               <button

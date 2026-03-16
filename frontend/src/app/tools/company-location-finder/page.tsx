@@ -76,9 +76,15 @@ export default function CompanyLocationFinderPage() {
   const [jobTitles, setJobTitles] = useState<string[]>([]);
   const [maxContacts, setMaxContacts] = useState(3);
 
-  // Job / auth
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  // Job / auth — restore from localStorage if available
+  const [jobId, setJobId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("qe_job_id");
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("qe_token");
+  });
 
   // Submit state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -86,6 +92,21 @@ export default function CompanyLocationFinderPage() {
 
   // Email (kept for potential future use)
   const [email, setEmail] = useState('');
+
+  // Persist job session to localStorage
+  useEffect(() => {
+    if (jobId && token) {
+      localStorage.setItem("qe_job_id", jobId);
+      localStorage.setItem("qe_token", token);
+    }
+  }, [jobId, token]);
+
+  // On mount: if we have a saved job, resume it
+  useEffect(() => {
+    if (jobId && token && phase === "input") {
+      setPhase("processing");
+    }
+  }, []);
 
   // SSE progress
   const { progress } = useSSE(
@@ -103,6 +124,14 @@ export default function CompanyLocationFinderPage() {
   function navigate(next: Phase) {
     setDirection(phaseIndex(next) >= phaseIndex(phase) ? 'forward' : 'back');
     setPhase(next);
+  }
+
+  // Clear saved session when starting fresh
+  function clearSession() {
+    localStorage.removeItem("qe_job_id");
+    localStorage.removeItem("qe_token");
+    setJobId(null);
+    setToken(null);
   }
 
   // ------------------------------------------------------------------
@@ -172,11 +201,9 @@ export default function CompanyLocationFinderPage() {
   // Slide variants based on direction
   // ------------------------------------------------------------------
   const entering = direction === 'forward';
-  const variants = {
-    initial:  { opacity: 0, x: entering ? 48 : -48 },
-    animate:  { opacity: 1, x: 0,  transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] } },
-    exit:     { opacity: 0, x: entering ? -48 : 48, transition: { duration: 0.25, ease: [0.4, 0, 0.2, 1] } },
-  };
+  const slideInitial = { opacity: 0, x: entering ? 48 : -48 };
+  const slideAnimate = { opacity: 1, x: 0 };
+  const slideExit = { opacity: 0, x: entering ? -48 : 48 };
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-8 px-4">
@@ -229,10 +256,10 @@ export default function CompanyLocationFinderPage() {
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={phase}
-              variants={variants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
+              initial={slideInitial}
+              animate={slideAnimate}
+              exit={slideExit}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
               className="bg-white rounded-2xl border border-border shadow-sm p-6 sm:p-8"
             >
               {/* ---- PHASE: input ---- */}
@@ -253,6 +280,7 @@ export default function CompanyLocationFinderPage() {
                   <ColumnMapper
                     headers={headers}
                     preview={preview}
+                    totalRows={allRows.length}
                     companyColumn={companyColumn}
                     locationColumn={locationColumn}
                     onCompanyColumnChange={setCompanyColumn}
@@ -361,7 +389,7 @@ export default function CompanyLocationFinderPage() {
                     foundCount={progress.found_count}
                   />
 
-                  <LivePreview jobId={jobId} token={token} />
+                  <LivePreview jobId={jobId} token={token} isProcessing={progress.status !== 'completed' && progress.status !== 'failed'} />
 
                   {progress.status === 'failed' && (
                     <p className="text-sm text-red-600 text-center" role="alert">
@@ -400,13 +428,30 @@ export default function CompanyLocationFinderPage() {
 
               {/* ---- PHASE: results ---- */}
               {phase === 'results' && jobId && token && (
-                <ResultsPanel
-                  jobId={jobId}
-                  token={token}
-                  totalRows={progress?.total_rows ?? 0}
-                  foundCount={progress?.found_count ?? 0}
-                  enrichedCount={enrichContacts ? (progress?.found_count ?? 0) : 0}
-                />
+                <div className="space-y-6">
+                  <ResultsPanel
+                    jobId={jobId}
+                    token={token}
+                    totalRows={progress?.total_rows ?? 0}
+                    foundCount={progress?.found_count ?? 0}
+                    enrichedCount={enrichContacts ? (progress?.found_count ?? 0) : 0}
+                  />
+                  <div className="text-center">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        clearSession();
+                        setPhase("input");
+                        setFile(null);
+                        setHeaders([]);
+                        setPreview([]);
+                        setAllRows([]);
+                      }}
+                    >
+                      Start a new job
+                    </Button>
+                  </div>
+                </div>
               )}
             </motion.div>
           </AnimatePresence>

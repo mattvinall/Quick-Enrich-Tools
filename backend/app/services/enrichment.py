@@ -36,10 +36,13 @@ async def enrich_company(
             response.raise_for_status()
             data = response.json()
 
+            # API returns { success, data: [...] } or a bare list
             if isinstance(data, list):
                 raw_results: list[dict[str, object]] = data
+            elif isinstance(data, dict):
+                raw_results = data.get("data", data.get("results", []))
             else:
-                raw_results = data.get("results", [])
+                raw_results = []
 
             for record in raw_results[:max_contacts]:
                 contacts.append(
@@ -48,8 +51,8 @@ async def enrich_company(
                         "first_name": str(record.get("first_name") or ""),
                         "last_name": str(record.get("last_name") or ""),
                         "email": str(record.get("email") or ""),
-                        "phone": str(record.get("phone") or ""),
-                        "linkedin_url": str(record.get("linkedin_url") or ""),
+                        "phone": str(record.get("employee_phone") or record.get("phone") or ""),
+                        "linkedin_url": str(record.get("employee_linkedin") or record.get("linkedin_url") or ""),
                     }
                 )
         except Exception as exc:
