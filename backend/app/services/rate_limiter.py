@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import RateLimit
 
-# Maps (key_type, action) -> daily limit
+# Maps (identifier_type, action) -> daily limit
 LIMITS: dict[tuple[str, str], int] = {
     ("email", "email_capture"): settings.uploads_per_email_per_day,
     ("ip", "email_capture"): settings.uploads_per_ip_per_day,
@@ -31,29 +31,29 @@ async def check_rate_limit(
     now = datetime.now(tz=timezone.utc)
     window_start = now - timedelta(hours=24)
 
-    composite_key = f"{action}:{identifier}"
-
     result = await db.execute(
         select(RateLimit).where(
-            RateLimit.key == composite_key,
-            RateLimit.key_type == identifier_type,
+            RateLimit.identifier == identifier,
+            RateLimit.identifier_type == identifier_type,
+            RateLimit.action == action,
             RateLimit.window_start >= window_start,
         )
     )
     record = result.scalar_one_or_none()
 
     if record is not None:
-        if record.count >= limit:
+        if record.request_count >= limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded for {identifier_type}. Try again later.",
             )
-        record.count += 1
+        record.request_count += 1
     else:
         record = RateLimit(
-            key=composite_key,
-            key_type=identifier_type,
+            identifier=identifier,
+            identifier_type=identifier_type,
+            action=action,
             window_start=now,
-            count=1,
+            request_count=1,
         )
         db.add(record)

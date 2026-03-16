@@ -104,17 +104,9 @@ async def upload_csv(
         email_capture_id=uuid.UUID(email_capture_id),
         tool_slug="company-enrichment",
         status="pending",
-        original_filename=filename,
-        row_count=len(rows),
-        column_mapping={
-            "company": company_column,
-            "location": location_column,
-        },
-        # config stored in column_mapping as there is no dedicated config column;
-        # the full config dict is kept here for the worker.
+        total_rows=len(rows),
+        config=job_config,
     )
-    # Store the full pipeline config in column_mapping (JSONB is flexible)
-    job.column_mapping = job_config  # type: ignore[assignment]
     db.add(job)
     await db.flush()  # populate job.id before creating children
 

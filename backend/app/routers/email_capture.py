@@ -38,10 +38,15 @@ async def capture_email(
 
     stmt = (
         pg_insert(EmailCapture)
-        .values(email=body.email)
+        .values(
+            email=body.email,
+            ip_address=ip_address,
+            tool_slug=body.tool_slug,
+            source=body.source,
+        )
         .on_conflict_do_update(
-            index_elements=["email"],
-            set_={"email": body.email},
+            index_elements=["email", "tool_slug"],
+            set_={"ip_address": ip_address, "source": body.source},
         )
         .returning(EmailCapture.id)
     )

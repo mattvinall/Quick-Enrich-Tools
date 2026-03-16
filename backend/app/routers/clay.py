@@ -30,17 +30,20 @@ class ClayPushResponse(BaseModel):
 
 def _build_record(result: JobResult) -> dict[str, object]:
     """Map a JobResult row to a Clay record dict."""
-    output: dict[str, object] = result.output_data or {}
+    input_data: dict[str, str] = result.input_data or {}
+    contacts_list = result.contacts if isinstance(result.contacts, list) else []
+    first_contact: dict[str, str] = contacts_list[0] if contacts_list else {}
+
     return {
-        "company_name": output.get("company_name", ""),
-        "location": output.get("location", ""),
-        "website": output.get("normalized_domain", ""),
-        "confidence": output.get("confidence", ""),
-        # Contact fields
-        "contact_name": output.get("contact_name", ""),
-        "contact_title": output.get("contact_title", ""),
-        "contact_email": output.get("contact_email", ""),
-        "contact_linkedin": output.get("contact_linkedin", ""),
+        "company_name": input_data.get("company_name", ""),
+        "location": input_data.get("location", ""),
+        "website": result.normalized_domain or result.verified_domain or "",
+        "confidence": str(result.verification_confidence) if result.verification_confidence is not None else "",
+        # Contact fields (first contact)
+        "contact_name": first_contact.get("name", ""),
+        "contact_title": first_contact.get("job_title") or first_contact.get("title", ""),
+        "contact_email": first_contact.get("email", ""),
+        "contact_linkedin": first_contact.get("linkedin", ""),
     }
 
 
@@ -67,7 +70,8 @@ async def clay_push(
     rows_result = await db.execute(
         select(JobResult).where(
             JobResult.job_id == job_id,
-            JobResult.output_data["normalized_domain"].astext != "",
+            JobResult.normalized_domain.isnot(None),
+            JobResult.normalized_domain != "",
         )
     )
     results = rows_result.scalars().all()

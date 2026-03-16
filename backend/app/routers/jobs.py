@@ -74,45 +74,27 @@ def _assert_token_owns_job(payload: dict[str, str | int], job: Job) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
-def _resolve_domain(output_data: dict[str, str] | None) -> str | None:
-    if not output_data:
-        return None
-    return (
-        output_data.get("normalized_domain")
-        or output_data.get("verified_domain")
-        or output_data.get("website")
-        or None
-    )
-
-
 def _build_preview_row(result: JobResult) -> PreviewRow:
     input_data: dict[str, str] = result.input_data or {}
-    output_data: dict[str, str] | None = result.output_data
 
     company_name: str | None = input_data.get("company_name") or input_data.get("Company Name")
     location: str | None = input_data.get("location") or input_data.get("Location")
 
-    confidence: str | None = None
-    contacts: list[dict[str, str | None]] | None = None
+    domain: str | None = result.normalized_domain or result.verified_domain or None
 
-    if output_data:
-        confidence = output_data.get("confidence") or output_data.get("verification_confidence")
-        raw_contacts = output_data.get("contacts")
-        if isinstance(raw_contacts, list):
-            contacts = raw_contacts
-        elif isinstance(raw_contacts, str):
-            try:
-                parsed = json.loads(raw_contacts)
-                if isinstance(parsed, list):
-                    contacts = parsed
-            except (json.JSONDecodeError, ValueError):
-                contacts = None
+    confidence: str | None = (
+        str(result.verification_confidence) if result.verification_confidence is not None else None
+    )
+
+    contacts: list[dict[str, str | None]] | None = None
+    if isinstance(result.contacts, list):
+        contacts = result.contacts
 
     return PreviewRow(
         row_index=result.row_index,
         company_name=company_name,
         location=location,
-        domain=_resolve_domain(output_data),
+        domain=domain,
         confidence=confidence,
         status=result.status,
         contacts=contacts,
@@ -134,35 +116,26 @@ async def get_job_status(
     job = _job_or_404(result.scalar_one_or_none())
     _assert_token_owns_job(payload, job)
 
-    output_meta: dict[str, str | float] | None = None
-    if job.column_mapping:
-        output_meta = job.column_mapping.get("_meta")  # type: ignore[assignment]
-
-    current_phase: str | None = None
     phase_progress: float | None = None
-    started_at: str | None = None
-
-    if isinstance(output_meta, dict):
-        current_phase = output_meta.get("current_phase")  # type: ignore[assignment]
-        raw_progress = output_meta.get("phase_progress")
-        if isinstance(raw_progress, (int, float)):
-            phase_progress = float(raw_progress)
-        started_at = output_meta.get("started_at")  # type: ignore[assignment]
+    if isinstance(job.phase_progress, dict):
+        raw = job.phase_progress.get("progress")
+        if isinstance(raw, (int, float)):
+            phase_progress = float(raw)
 
     config: dict[str, str] | None = None
-    if job.column_mapping:
-        config = {k: v for k, v in job.column_mapping.items() if k != "_meta" and isinstance(v, str)}
+    if isinstance(job.config, dict):
+        config = {k: v for k, v in job.config.items() if isinstance(v, str)} or None
 
     return JobStatusResponse(
         id=str(job.id),
         status=job.status,
-        total_rows=job.row_count,
-        processed_rows=job.processed_count,
-        current_phase=current_phase,
+        total_rows=job.total_rows,
+        processed_rows=job.processed_rows,
+        current_phase=job.current_phase,
         phase_progress=phase_progress,
-        config=config or None,
+        config=config,
         error_message=job.error_message,
-        started_at=started_at,
+        started_at=job.started_at.isoformat() if job.started_at else None,
         completed_at=job.completed_at.isoformat() if job.completed_at else None,
         created_at=job.created_at.isoformat(),
     )
@@ -208,24 +181,22 @@ async def job_sse(
                 found_count_result = await session.execute(
                     select(func.count(JobResult.id)).where(
                         JobResult.job_id == job_id,
-                        JobResult.output_data["normalized_domain"].astext.isnot(None),
+                        JobResult.normalized_domain.isnot(None),
                     )
                 )
                 found_count: int = found_count_result.scalar_one() or 0
 
-                output_meta: dict[str, str | float] = {}
-                if job.column_mapping and isinstance(job.column_mapping.get("_meta"), dict):
-                    output_meta = job.column_mapping["_meta"]  # type: ignore[assignment]
-
-                current_phase: str | None = output_meta.get("current_phase")  # type: ignore[assignment]
-                raw_progress = output_meta.get("phase_progress")
-                phase_progress: float | None = float(raw_progress) if isinstance(raw_progress, (int, float)) else None
+                phase_progress: float | None = None
+                if isinstance(job.phase_progress, dict):
+                    raw = job.phase_progress.get("progress")
+                    if isinstance(raw, (int, float)):
+                        phase_progress = float(raw)
 
                 event_data = json.dumps({
                     "status": job.status,
-                    "processed_rows": job.processed_count,
-                    "total_rows": job.row_count,
-                    "current_phase": current_phase,
+                    "processed_rows": job.processed_rows,
+                    "total_rows": job.total_rows,
+                    "current_phase": job.current_phase,
                     "phase_progress": phase_progress,
                     "found_count": found_count,
                 })

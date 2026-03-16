@@ -25,11 +25,10 @@ class ToolsResponse(BaseModel):
 async def list_tools(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ToolsResponse:
-    """Return all active tools ordered by sort_order."""
+    """Return all active tools."""
     result = await db.execute(
         select(Tool)
         .where(Tool.is_active.is_(True))
-        .order_by(Tool.sort_order)
     )
     tools = result.scalars().all()
     return ToolsResponse(

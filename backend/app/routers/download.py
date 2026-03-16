@@ -33,12 +33,12 @@ def _assert_token_owns_job(payload: dict[str, str | int], job: Job) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
-def _collect_job_titles(column_mapping: dict[str, str] | None) -> list[str]:
-    """Return the ordered list of contact job titles from the job's column_mapping."""
-    if not column_mapping:
+def _collect_job_titles(config: dict[str, str | int | bool] | None) -> list[str]:
+    """Return the ordered list of contact job titles from the job's config."""
+    if not config:
         return []
     titles: list[str] = []
-    for key, value in column_mapping.items():
+    for key, value in config.items():
         if key.startswith("contact_title_") and isinstance(value, str) and value not in titles:
             titles.append(value)
     return titles
@@ -54,7 +54,6 @@ def _build_contact_headers(titles: list[str]) -> list[str]:
 
 def _extract_row(result: JobResult, titles: list[str]) -> list[str]:
     input_data: dict[str, str] = result.input_data or {}
-    output_data: dict[str, str] = result.output_data or {}
 
     company_name = (
         input_data.get("company_name")
@@ -66,20 +65,14 @@ def _extract_row(result: JobResult, titles: list[str]) -> list[str]:
         or input_data.get("Location")
         or ""
     )
-    website = (
-        output_data.get("normalized_domain")
-        or output_data.get("verified_domain")
-        or output_data.get("website")
-        or input_data.get("website")
-        or ""
-    )
-    confidence = output_data.get("verification_confidence") or output_data.get("confidence") or ""
+    website = result.normalized_domain or result.verified_domain or ""
+    confidence = str(result.verification_confidence) if result.verification_confidence is not None else ""
     row_status = result.status
 
     base: list[str] = [company_name, location, website, confidence, row_status]
 
     contacts_by_title: dict[str, dict[str, str]] = {}
-    raw_contacts = output_data.get("contacts")
+    raw_contacts = result.contacts
     if isinstance(raw_contacts, list):
         for contact in raw_contacts:
             if isinstance(contact, dict):
@@ -100,7 +93,7 @@ async def _stream_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, None]
     # UTF-8 BOM for Excel compatibility
     yield b"\xef\xbb\xbf"
 
-    titles = _collect_job_titles(job.column_mapping)
+    titles = _collect_job_titles(job.config)
     headers = _BASE_COLUMNS + _build_contact_headers(titles)
 
     buf = io.StringIO()
