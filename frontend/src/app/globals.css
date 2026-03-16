@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #2b7ec8;
+  --color-primary-hover: #1e6bb8;
+  --color-primary-light: rgba(43, 126, 200, 0.1);
+  --color-border: #e5e7eb;
+  --color-text-primary: #1f2937;
+  --color-text-secondary: #6b7280;
+}
+
+@layer base {
+  body {
+    color: var(--color-text-primary);
+    font-family: 'Inter', sans-serif;
+  }
+}
