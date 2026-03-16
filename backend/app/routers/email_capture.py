@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -14,7 +14,7 @@ router = APIRouter(tags=["email-capture"])
 
 
 class EmailCaptureRequest(BaseModel):
-    email: EmailStr
+    email: str
     tool_slug: str
     source: str | None = None
 
