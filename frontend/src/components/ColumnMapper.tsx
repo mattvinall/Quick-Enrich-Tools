@@ -138,7 +138,7 @@ export default function ColumnMapper({
           <label className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
             <MapPin className="h-4 w-4 text-text-secondary" />
             Location
-            <span className="text-xs font-normal text-text-secondary">(recommended)</span>
+            <span className="text-red-500">*</span>
           </label>
           <motion.div
             key={locationColumn}

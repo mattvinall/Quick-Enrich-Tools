@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     max_file_size_mb: int = 50
     max_rows: int = 100_000
-    uploads_per_email_per_day: int = 3
-    uploads_per_ip_per_day: int = 5
+    uploads_per_email_per_day: int = 50
+    uploads_per_ip_per_day: int = 50
     downloads_per_job: int = 10
     serper_concurrency: int = 20
     llm_concurrency: int = 10

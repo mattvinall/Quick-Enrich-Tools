@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     completed_at      TIMESTAMPTZ,
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT jobs_status_check CHECK (
-        status IN ('pending','parsing','searching','verifying','enriching','delivering','completed','failed')
+        status IN ('pending','parsing','searching','verifying','normalizing','enriching','delivering','completed','failed')
     )
 );
 

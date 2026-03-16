@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -130,9 +130,18 @@ async def _stream_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, None]
 @router.get("/download/{job_id}")
 async def download_results(
     job_id: uuid.UUID,
-    payload: Annotated[dict[str, str | int], Depends(verify_token)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    token: str = Query(default=""),
 ) -> StreamingResponse:
+    from jose import JWTError, jwt as jose_jwt
+    from app.config import settings as app_settings
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Token required")
+    try:
+        payload = jose_jwt.decode(token, app_settings.jwt_secret, algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = _job_or_404(job_result.scalar_one_or_none())
     _assert_token_owns_job(payload, job)

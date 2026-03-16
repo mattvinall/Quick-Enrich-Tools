@@ -82,7 +82,7 @@ function AnimatedNumber({
     return () => clearInterval(id);
   }, [value]);
 
-  return <span className={className}>{displayed.toLocaleString()}</span>;
+  return <span className={className}>{(displayed ?? 0).toLocaleString()}</span>;
 }
 
 export default function ProgressTracker({
@@ -97,7 +97,7 @@ export default function ProgressTracker({
   const isComplete = status === 'completed';
   const activeIndex = isComplete ? PHASES.length : currentIndex;
 
-  const currentEntry: PhaseEntry | undefined = currentPhase
+  const currentEntry: PhaseEntry | undefined = currentPhase && phaseProgress
     ? phaseProgress[currentPhase]
     : undefined;
 

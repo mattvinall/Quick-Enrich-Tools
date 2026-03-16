@@ -11,6 +11,7 @@ interface PreviewRow {
   index: number;
   company_name: string;
   location?: string;
+  domain?: string;
   website?: string;
   status: string;
 }
@@ -237,14 +238,14 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
                         )}
                       </td>
                       <td className="px-4 py-2.5 max-w-[200px] hidden md:table-cell">
-                        {row.website ? (
+                        {(row.domain || row.website) ? (
                           <a
-                            href={row.website}
+                            href={`https://${row.domain || row.website}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-primary hover:underline truncate block text-xs"
                           >
-                            {row.website.replace(/^https?:\/\//, '')}
+                            {(row.domain || row.website || '').replace(/^https?:\/\//, '')}
                           </a>
                         ) : (
                           <span className="text-gray-300">—</span>

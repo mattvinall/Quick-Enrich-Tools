@@ -92,12 +92,21 @@ async def upload_csv(
     email = str(token_payload["sub"])
 
     # --- create Job ---
-    job_config: dict[str, str | int | bool] = {
+    # Parse job_titles — frontend sends JSON string like '["CEO","Founder"]'
+    import json as _json
+    parsed_titles: list[str] = []
+    if job_titles:
+        try:
+            parsed_titles = _json.loads(job_titles)
+        except _json.JSONDecodeError:
+            parsed_titles = [t.strip() for t in job_titles.split(",") if t.strip()]
+
+    job_config: dict[str, str | int | bool | list[str]] = {
         "company_column": company_column,
         "location_column": location_column,
         "email_capture_id": email_capture_id,
         "enrich_contacts": enrich_contacts,
-        "job_titles": job_titles,
+        "job_titles": parsed_titles,
         "max_contacts": max_contacts,
     }
     job = Job(

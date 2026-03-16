@@ -16,9 +16,11 @@ interface ResultRow {
   index: number;
   company_name: string;
   location?: string;
+  domain?: string;
   website?: string;
   confidence?: number;
   status: string;
+  contacts?: { title: string; first_name: string; last_name: string; email: string; phone: string; linkedin_url: string }[];
   // contact enrichment fields
   contact_name?: string;
   contact_title?: string;
@@ -405,14 +407,14 @@ export default function ResultsPanel({
                             {row.location ?? '—'}
                           </td>
                           <td className="px-4 py-3 max-w-[200px]">
-                            {row.website ? (
+                            {(row.domain || row.website) ? (
                               <a
-                                href={row.website}
+                                href={`https://${row.domain || row.website}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-primary hover:underline flex items-center gap-1 truncate"
                               >
-                                <span className="truncate">{row.website}</span>
+                                <span className="truncate">{row.domain || row.website}</span>
                                 <ExternalLink className="w-3 h-3 shrink-0" />
                               </a>
                             ) : (

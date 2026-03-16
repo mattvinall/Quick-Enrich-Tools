@@ -281,11 +281,14 @@ async def phase_deliver(
         "websites_found": found,
     }
 
-    send_results_email(
-        to_email=email_capture.email,
-        download_url=download_url,
-        job_stats=job_stats,
-    )
+    try:
+        send_results_email(
+            to_email=email_capture.email,
+            download_url=download_url,
+            job_stats=job_stats,
+        )
+    except Exception as e:
+        logger.warning("Failed to send results email for job_id=%s: %s", job_id, e)
 
     await update_job_progress(db, job_id, "deliver", 1, 1)
 

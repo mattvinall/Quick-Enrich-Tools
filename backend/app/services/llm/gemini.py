@@ -51,7 +51,7 @@ class GeminiProvider(BaseLLMProvider):
     def __init__(self) -> None:
         genai.configure(api_key=settings.gemini_api_key)
         self._model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.5-flash",
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
                 temperature=0.1,

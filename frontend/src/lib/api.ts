@@ -89,7 +89,7 @@ export function getJobStatus(
 }
 
 export function getDownloadUrl(jobId: string, token: string): string {
-  return `${API_URL}/api/v1/jobs/${jobId}/download?token=${encodeURIComponent(token)}`;
+  return `${API_URL}/api/v1/download/${jobId}?token=${encodeURIComponent(token)}`;
 }
 
 export interface ClayPushResponse {

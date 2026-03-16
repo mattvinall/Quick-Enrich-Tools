@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from urllib.parse import urlparse
 
 import httpx
 
 from app.config import settings
 from app.services.cache import cache_get, cache_set, make_cache_key
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_domain(url: str) -> str:
@@ -29,6 +32,7 @@ async def search_company(
     cache_key = make_cache_key("serper", company_name.lower(), location.lower())
     cached = await cache_get(cache_key)
     if cached is not None:
+        logger.info("SERPER CACHE HIT: %s (%s)", company_name, location)
         return cached
 
     query_parts = [f'"{company_name}"']
@@ -36,6 +40,7 @@ async def search_company(
         query_parts.append(location)
     query_parts.append("official website")
     query = " ".join(query_parts)
+    logger.info("SERPER SEARCH: %s", query)
 
     response = await client.post(
         "https://google.serper.dev/search",

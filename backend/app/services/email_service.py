@@ -112,7 +112,7 @@ def send_results_email(to_email: str, download_url: str, job_stats: dict[str, in
 </html>"""
 
     params: resend.Emails.SendParams = {
-        "from": "QuickEnrich Tools <tools@quickenrich.io>",
+        "from": "QuickEnrich Tools <onboarding@resend.dev>",
         "to": [to_email],
         "subject": f"Your QuickEnrich Results — {found}/{total} websites found",
         "html": html,

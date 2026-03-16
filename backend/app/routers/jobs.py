@@ -220,7 +220,7 @@ async def get_job_preview(
     job_id: uuid.UUID,
     payload: Annotated[dict[str, str | int], Depends(verify_token)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    limit: int = Query(default=50, le=100, ge=1),
+    limit: int = Query(default=50, le=5000, ge=1),
     offset: int = Query(default=0, ge=0),
 ) -> PreviewResponse:
     job_result = await db.execute(select(Job).where(Job.id == job_id))

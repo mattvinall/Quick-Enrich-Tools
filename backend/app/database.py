@@ -10,9 +10,15 @@ from app.config import settings
 
 engine = create_async_engine(
     settings.database_url,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=5,
+    max_overflow=0,
     echo=False,
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    },
+    pool_pre_ping=True,
+    pool_recycle=300,
 )
 
 AsyncSessionLocal = async_sessionmaker(
