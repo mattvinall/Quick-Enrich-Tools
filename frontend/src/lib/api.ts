@@ -98,8 +98,7 @@ export interface ClayPushResponse {
 
 export function pushToClay(
   jobId: string,
-  clayApiKey: string,
-  tableId: string,
+  webhookUrl: string,
   token: string,
 ): Promise<ClayPushResponse> {
   return fetchAPI<ClayPushResponse>(`${API_URL}/api/v1/clay-push/${jobId}`, {
@@ -108,6 +107,6 @@ export function pushToClay(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ clay_api_key: clayApiKey, table_id: tableId }),
+    body: JSON.stringify({ webhook_url: webhookUrl }),
   });
 }

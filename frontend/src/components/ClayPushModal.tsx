@@ -25,8 +25,7 @@ interface ClayPushModalProps {
 type ModalStatus = 'idle' | 'pushing' | 'done' | 'error';
 
 export default function ClayPushModal({ jobId, token, onClose, open }: ClayPushModalProps) {
-  const [clayApiKey, setClayApiKey] = useState('');
-  const [tableId, setTableId] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [status, setStatus] = useState<ModalStatus>('idle');
   const [pushedCount, setPushedCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
@@ -36,11 +35,11 @@ export default function ClayPushModal({ jobId, token, onClose, open }: ClayPushM
   }
 
   async function handlePush() {
-    if (!clayApiKey.trim() || !tableId.trim()) return;
+    if (!webhookUrl.trim()) return;
     setStatus('pushing');
     setErrorMessage('');
     try {
-      const result = await pushToClay(jobId, clayApiKey.trim(), tableId.trim(), token);
+      const result = await pushToClay(jobId, webhookUrl.trim(), token);
       setPushedCount(result.pushed_count);
       setStatus('done');
     } catch (err) {
@@ -50,7 +49,7 @@ export default function ClayPushModal({ jobId, token, onClose, open }: ClayPushM
   }
 
   const isPushing = status === 'pushing';
-  const canSubmit = clayApiKey.trim().length > 0 && tableId.trim().length > 0 && !isPushing;
+  const canSubmit = webhookUrl.trim().length > 0 && !isPushing;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -81,44 +80,29 @@ export default function ClayPushModal({ jobId, token, onClose, open }: ClayPushM
             <DialogHeader>
               <DialogTitle>Push to Clay</DialogTitle>
               <DialogDescription>
-                Send your enriched results directly to a Clay table.
+                Paste your Clay table webhook URL to send the enriched results directly.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-2">
               <div className="space-y-1.5">
                 <label
-                  htmlFor="clay-api-key"
+                  htmlFor="clay-webhook"
                   className="text-sm font-medium text-text-primary"
                 >
-                  Clay API Key
+                  Clay Webhook URL
                 </label>
                 <Input
-                  id="clay-api-key"
-                  type="password"
-                  value={clayApiKey}
-                  onChange={(e) => setClayApiKey(e.target.value)}
-                  placeholder="••••••••••••••••"
-                  disabled={isPushing}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="clay-table-id"
-                  className="text-sm font-medium text-text-primary"
-                >
-                  Table ID
-                </label>
-                <Input
-                  id="clay-table-id"
-                  type="text"
-                  value={tableId}
-                  onChange={(e) => setTableId(e.target.value)}
-                  placeholder="e.g. tbl_abc123"
+                  id="clay-webhook"
+                  type="url"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://hooks.clay.com/..."
                   disabled={isPushing}
                 />
+                <p className="text-xs text-text-secondary">
+                  In Clay, create a webhook source on your table and paste the URL here.
+                </p>
               </div>
 
               {status === 'error' && (
