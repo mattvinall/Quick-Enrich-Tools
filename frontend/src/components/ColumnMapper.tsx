@@ -1,11 +1,25 @@
-'use client';
+"use client";
+
+import { useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Building2, MapPin } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const COMPANY_REGEX = /company|name|org|business|brand/i;
 const LOCATION_REGEX = /location|city|state|address|geo|region/i;
 
 export function autoDetectColumns(headers: string[]): { company: string; location: string } {
-  const company = headers.find((h) => COMPANY_REGEX.test(h)) ?? '';
-  const location = headers.find((h) => LOCATION_REGEX.test(h)) ?? '';
+  const company = headers.find((h) => COMPANY_REGEX.test(h)) ?? "";
+  const location = headers.find((h) => LOCATION_REGEX.test(h)) ?? "";
   return { company, location };
 }
 
@@ -14,9 +28,11 @@ interface ColumnMapperProps {
   preview: Record<string, string>[];
   companyColumn: string;
   locationColumn: string;
-  onCompanyColumnChange: (column: string) => void;
-  onLocationColumnChange: (column: string) => void;
+  onCompanyColumnChange: (col: string) => void;
+  onLocationColumnChange: (col: string) => void;
 }
+
+const PREVIEW_LIMIT = 5;
 
 export default function ColumnMapper({
   headers,
@@ -26,128 +42,210 @@ export default function ColumnMapper({
   onCompanyColumnChange,
   onLocationColumnChange,
 }: ColumnMapperProps) {
+  const prevCompany = useRef(companyColumn);
+  const prevLocation = useRef(locationColumn);
+
+  const companyChanged = prevCompany.current !== companyColumn;
+  const locationChanged = prevLocation.current !== locationColumn;
+  prevCompany.current = companyColumn;
+  prevLocation.current = locationColumn;
+
+  const displayRows = preview.slice(0, PREVIEW_LIMIT);
+
   return (
-    <div className="flex flex-col gap-6">
-      {/* Column selectors */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Company Name */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="company-column"
-            className="text-sm font-medium text-[#1f2937]"
-          >
-            Company Name{' '}
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="space-y-6"
+    >
+      {/* Selectors */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* Company Column */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+            <Building2 className="h-4 w-4 text-text-secondary" />
+            Company Name
             <span className="text-red-500" aria-label="required">
               *
             </span>
           </label>
-          <select
-            id="company-column"
-            value={companyColumn}
-            onChange={(e) => onCompanyColumnChange(e.target.value)}
-            className="w-full rounded-md border border-[#e5e7eb] bg-white px-3 py-2 text-sm text-[#1f2937] shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          <motion.div
+            key={companyColumn}
+            animate={companyChanged ? { scale: [1, 1.01, 1] } : {}}
+            transition={{ duration: 0.25 }}
           >
-            <option value="">— Select a column —</option>
-            {headers.map((header) => (
-              <option key={header} value={header}>
-                {header}
-              </option>
-            ))}
-          </select>
+            <Select value={companyColumn} onValueChange={onCompanyColumnChange}>
+              <SelectTrigger
+                className={cn(
+                  companyColumn &&
+                    "border-primary/50 ring-1 ring-primary/20 focus:ring-primary/30"
+                )}
+              >
+                <SelectValue placeholder="Select a column…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">— Select a column —</SelectItem>
+                {headers.map((header) => (
+                  <SelectItem key={header} value={header}>
+                    {header}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </motion.div>
         </div>
 
-        {/* Location */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="location-column"
-            className="text-sm font-medium text-[#1f2937]"
-          >
-            Location{' '}
-            <span className="text-[#6b7280] font-normal text-xs">(optional)</span>
+        {/* Location Column */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+            <MapPin className="h-4 w-4 text-text-secondary" />
+            Location
+            <span className="text-xs font-normal text-text-secondary">(recommended)</span>
           </label>
-          <select
-            id="location-column"
-            value={locationColumn}
-            onChange={(e) => onLocationColumnChange(e.target.value)}
-            className="w-full rounded-md border border-[#e5e7eb] bg-white px-3 py-2 text-sm text-[#1f2937] shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          <motion.div
+            key={locationColumn}
+            animate={locationChanged ? { scale: [1, 1.01, 1] } : {}}
+            transition={{ duration: 0.25 }}
           >
-            <option value="">— None —</option>
-            {headers.map((header) => (
-              <option key={header} value={header}>
-                {header}
-              </option>
-            ))}
-          </select>
+            <Select value={locationColumn} onValueChange={onLocationColumnChange}>
+              <SelectTrigger
+                className={cn(
+                  locationColumn &&
+                    "border-blue-400/50 ring-1 ring-blue-400/20 focus:ring-blue-400/30"
+                )}
+              >
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">— None —</SelectItem>
+                {headers.map((header) => (
+                  <SelectItem key={header} value={header}>
+                    {header}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </motion.div>
         </div>
       </div>
 
-      {/* Preview table */}
-      {preview.length > 0 && (
-        <div>
-          <div className="overflow-x-auto rounded-lg border border-[#e5e7eb]">
-            <table className="min-w-full text-sm text-[#1f2937]">
-              <thead className="bg-[#f9fafb] border-b border-[#e5e7eb]">
-                <tr>
-                  {headers.map((header) => {
-                    const isCompany = header === companyColumn && companyColumn !== '';
-                    const isLocation = header === locationColumn && locationColumn !== '';
-                    return (
-                      <th
-                        key={header}
-                        scope="col"
-                        className={[
-                          'px-4 py-2 text-left font-semibold whitespace-nowrap',
-                          isCompany ? 'bg-primary/10' : '',
-                          isLocation && !isCompany ? 'bg-blue-50' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                      >
-                        <span className="max-w-[200px] block truncate">{header}</span>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.map((row, rowIndex) => (
-                  <tr
-                    key={rowIndex}
-                    className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-[#f9fafb]'}
-                  >
-                    {headers.map((header) => {
-                      const isCompany = header === companyColumn && companyColumn !== '';
-                      const isLocation = header === locationColumn && locationColumn !== '';
-                      return (
-                        <td
-                          key={header}
-                          className={[
-                            'px-4 py-2 align-middle',
-                            isCompany ? 'bg-primary/10' : '',
-                            isLocation && !isCompany ? 'bg-blue-50' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
+      {/* Preview Table */}
+      <AnimatePresence>
+        {displayRows.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-gray-50/80">
+                        {headers.map((header) => {
+                          const isCompany = header === companyColumn && companyColumn !== "";
+                          const isLocation = header === locationColumn && locationColumn !== "";
+                          return (
+                            <th
+                              key={header}
+                              scope="col"
+                              className={cn(
+                                "whitespace-nowrap px-4 py-3 text-left text-xs font-semibold tracking-wide",
+                                isCompany && "bg-primary/8 text-primary",
+                                isLocation && !isCompany && "bg-blue-50 text-blue-600",
+                                !isCompany && !isLocation && "text-text-secondary"
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="max-w-[160px] truncate">{header}</span>
+                                <AnimatePresence>
+                                  {isCompany && (
+                                    <motion.div
+                                      initial={{ opacity: 0, scale: 0.7 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.7 }}
+                                      transition={{ duration: 0.15 }}
+                                    >
+                                      <Badge className="bg-primary/15 text-primary text-[10px] px-1.5 py-0">
+                                        Company
+                                      </Badge>
+                                    </motion.div>
+                                  )}
+                                  {isLocation && !isCompany && (
+                                    <motion.div
+                                      initial={{ opacity: 0, scale: 0.7 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.7 }}
+                                      transition={{ duration: 0.15 }}
+                                    >
+                                      <Badge className="bg-blue-100 text-blue-600 text-[10px] px-1.5 py-0">
+                                        Location
+                                      </Badge>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayRows.map((row, rowIndex) => (
+                        <tr
+                          key={rowIndex}
+                          className={cn(
+                            "border-b border-border/50 last:border-0",
+                            rowIndex % 2 === 0 ? "bg-white" : "bg-gray-50/50"
+                          )}
                         >
-                          <span
-                            className="max-w-[200px] block truncate text-[#1f2937]"
-                            title={row[header]}
-                          >
-                            {row[header]}
-                          </span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-2 text-xs text-[#6b7280]">
-            Showing first {preview.length} row{preview.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-      )}
-    </div>
+                          {headers.map((header) => {
+                            const isCompany = header === companyColumn && companyColumn !== "";
+                            const isLocation =
+                              header === locationColumn && locationColumn !== "";
+                            return (
+                              <td
+                                key={header}
+                                className={cn(
+                                  "px-4 py-2.5 align-middle",
+                                  isCompany && "bg-primary/5",
+                                  isLocation && !isCompany && "bg-blue-50/60"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "block max-w-[200px] truncate text-xs",
+                                    isCompany && "font-medium text-text-primary",
+                                    isLocation && !isCompany && "text-blue-700",
+                                    !isCompany && !isLocation && "text-text-secondary"
+                                  )}
+                                  title={row[header]}
+                                >
+                                  {row[header] || (
+                                    <span className="italic text-gray-300">empty</span>
+                                  )}
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            <p className="mt-2 text-xs text-text-secondary">
+              Showing {displayRows.length} of {preview.length} row
+              {preview.length !== 1 ? "s" : ""}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
