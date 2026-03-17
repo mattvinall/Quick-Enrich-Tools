@@ -25,7 +25,7 @@ def generate_output_csv(rows: list[dict[str, object]], job_titles: list[str]) ->
     """
     base_headers = ["company_name", "location", "website", "verification_confidence", "status"]
 
-    contact_suffixes = ["First Name", "Last Name", "Email", "Phone", "LinkedIn"]
+    contact_suffixes = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
     contact_headers: list[str] = []
     for title in job_titles:
         for suffix in contact_suffixes:
@@ -40,13 +40,6 @@ def generate_output_csv(rows: list[dict[str, object]], job_titles: list[str]) ->
     for row in rows:
         contacts: list[dict[str, str]] = row.get("contacts", [])  # type: ignore[assignment]
 
-        # Build a title -> first matching contact lookup (case-insensitive).
-        title_map: dict[str, dict[str, str]] = {}
-        for contact in contacts:
-            contact_title = str(contact.get("title", "")).lower()
-            if contact_title not in title_map:
-                title_map[contact_title] = contact
-
         csv_row: dict[str, object] = {
             "company_name": row.get("company_name", ""),
             "location": row.get("location", ""),
@@ -55,8 +48,12 @@ def generate_output_csv(rows: list[dict[str, object]], job_titles: list[str]) ->
             "status": row.get("status", ""),
         }
 
-        for title in job_titles:
-            contact = title_map.get(title.lower(), {})
+        # Assign contacts to title columns positionally — first contact goes
+        # to the first title column, second contact to the second, etc.
+        # Show the actual title the API returned rather than forcing a match.
+        for idx, title in enumerate(job_titles):
+            contact = contacts[idx] if idx < len(contacts) else {}
+            csv_row[f"{title} - Title"] = contact.get("title", "")
             csv_row[f"{title} - First Name"] = contact.get("first_name", "")
             csv_row[f"{title} - Last Name"] = contact.get("last_name", "")
             csv_row[f"{title} - Email"] = contact.get("email", "")

@@ -18,7 +18,7 @@ router = APIRouter(tags=["download"])
 
 _BATCH_SIZE = 500
 _BASE_COLUMNS = ["company_name", "location", "website", "verification_confidence", "status"]
-_CONTACT_FIELDS = ["First Name", "Last Name", "Email", "Phone", "LinkedIn"]
+_CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
 
 
 def _job_or_404(job: Job | None) -> Job:
@@ -78,27 +78,22 @@ def _extract_row(result: JobResult, titles: list[str]) -> list[str]:
 
     base: list[str] = [company_name, location, website, confidence, row_status]
 
-    # Group contacts by searched title (case-insensitive partial match)
+    # Assign contacts to title columns positionally — first contact goes
+    # to the first title column, second to the second, etc.
     raw_contacts = result.contacts
     all_contacts: list[dict[str, str]] = []
     if isinstance(raw_contacts, list):
         all_contacts = [c for c in raw_contacts if isinstance(c, dict)]
 
     contact_cells: list[str] = []
-    for title in titles:
-        # Find best matching contact for this title
-        contact: dict[str, str] = {}
-        title_lower = title.lower()
-        for c in all_contacts:
-            c_title = (c.get("title") or c.get("job_title") or "").lower()
-            if title_lower in c_title or c_title.startswith(title_lower):
-                contact = c
-                break
+    for idx in range(len(titles)):
+        contact = all_contacts[idx] if idx < len(all_contacts) else {}
+        contact_cells.append(contact.get("title", ""))
         contact_cells.append(contact.get("first_name", ""))
         contact_cells.append(contact.get("last_name", ""))
         contact_cells.append(contact.get("email", ""))
-        contact_cells.append(contact.get("phone") or contact.get("employee_phone", ""))
-        contact_cells.append(contact.get("linkedin_url") or contact.get("employee_linkedin", ""))
+        contact_cells.append(contact.get("phone", ""))
+        contact_cells.append(contact.get("linkedin_url", ""))
 
     return base + contact_cells
 
