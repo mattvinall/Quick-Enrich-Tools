@@ -3,4 +3,4 @@ builder = "NIXPACKS"
 buildCommand = "cd backend && pip install -r requirements.txt"
 
 [deploy]
-startCommand = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+startCommand = "cd backend && arq app.workers.pipeline.WorkerSettings & uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
