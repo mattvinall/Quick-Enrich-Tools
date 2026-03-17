@@ -38,7 +38,7 @@ The current pipeline processes rows in 5 strictly sequential phases. Each phase 
 1. **LLM verification is fully sequential** — single biggest bottleneck
 2. **Phases are strictly sequential** — no overlap between phases
 3. **No enrichment caching** — only search results are cached
-4. **httpx.AsyncClient created per-request** — unnecessary TLS overhead
+4. **httpx.AsyncClient created per-request in `batch_search()` and `batch_enrich()`** — unnecessary TLS overhead
 5. **DB connection pool is 5** — will bottleneck under pipelined load
 
 ---
@@ -66,36 +66,61 @@ Chunk 3:     [Search] ────→     [Verify] ────→     [Normaliz
 - `run_pipeline()` is restructured to launch 4 concurrent async tasks (one per phase: search, verify, normalize, enrich) plus a coordinator
 - Each phase task runs a `while True` loop reading from its input `asyncio.Queue`
 - A sentinel value (`None`) signals the phase to shut down
-- Micro-batch size: 200 rows (configurable via `pipeline_batch_size` setting)
-- The search phase reads rows from the DB in micro-batches and pushes them to `queue_sv`
+- Micro-batch size: 200 rows (configurable via `pipeline_batch_size` setting in `config.py`)
+- The search phase queries rows from the DB in micro-batches of `pipeline_batch_size` and pushes them to `queue_sv`
 - Each subsequent phase consumes from its input queue, processes, writes results to DB, and pushes to the next queue
 - Deliver phase waits for a `completion_event` (asyncio.Event) set when all rows have finished enrichment
-- Progress tracking: each phase increments a shared counter; the coordinator periodically calls `update_job_progress()` with the minimum progress across all phases
+- **Queue maxsize: 5** — bounded queues provide backpressure so the fastest phase (search) doesn't outrun slower phases (verify). If a queue is full, the producing phase awaits until the consumer drains an item.
+
+**Data passing between phases:**
+- Queues pass **lists of `JobResult` primary keys (UUIDs)** — not ORM objects
+- Each phase task queries its own batch of `JobResult` rows from the DB using those keys
+- This avoids ORM staleness issues since each phase reads fresh data from the DB
+
+**DB session safety:**
+- Each phase task creates and manages **its own `AsyncSession`** via `async with AsyncSessionLocal() as db:`
+- The current single-session pattern in `run_pipeline()` is removed — concurrent phases must NOT share a session (SQLAlchemy async sessions are not safe for concurrent use)
+- The coordinator task uses its own session for job-level status updates
+
+**Job config propagation:**
+- `run_pipeline()` reads the job config (job_titles, max_contacts, enrich_contacts, etc.) once at startup and passes it to the enrich phase task as a plain dict argument (not via the queue)
+
+**Progress tracking:**
+- Each phase maintains an `asyncio`-safe counter (simple `int` is fine since we're single-threaded async)
+- The coordinator task periodically reads all phase counters and calls `update_job_progress()` with the current phase name and progress
 
 **Error handling:**
-- If a row fails in any phase, it's marked with `status="failed"` and not pushed to the next queue
-- If an entire phase task crashes, it sets an error event that causes all other phase tasks to drain and the job to be marked as `"failed"`
+- If a row fails in any phase, it's marked with `status="failed"` in the DB and not pushed to the next queue
+- If an entire phase task crashes, it sets an `asyncio.Event` (error_event) that causes all other phase tasks to drain and the job to be marked as `"failed"`
+
+**Relationship to existing batch sizes:**
+- `pipeline_batch_size` (new, default 200) controls the micro-batch size flowing between queues
+- `search_batch_size` (existing, default 100) is removed — replaced by `pipeline_batch_size`
+- Intra-phase concurrency is still controlled by the per-service semaphore settings
 
 **Files changed:**
 - `backend/app/workers/pipeline.py` — major restructure of `run_pipeline()` and all `phase_*` functions
+- `backend/app/config.py` — add `pipeline_batch_size: int = 200`, remove `search_batch_size`
 
 ### 2. Parallel LLM Verification
 
 **Problem:** `phase_verify()` processes LLM batches sequentially in a for-loop. Each batch of 20 items waits for the previous batch to complete.
 
-**Solution:** Use the same `asyncio.Semaphore` + `asyncio.gather` pattern already used by search and enrichment. Run up to 8 concurrent LLM batches.
+**Solution:** Use the same `asyncio.Semaphore` + `asyncio.gather` pattern already used by search and enrichment. Run up to 5 concurrent LLM batches.
 
 **Implementation details:**
 
-- Add `verify_concurrency: int = 8` to config (separate from the existing `llm_concurrency` which was unused)
-- In `phase_verify()`, collect items into batches of 20, then dispatch all batches via `asyncio.gather` with a `Semaphore(8)`
+- Add `verify_concurrency: int = 5` to config, replacing the unused `llm_concurrency` setting
+- Remove `llm_concurrency` from config to avoid confusion
+- In `phase_verify()`, collect items into batches of 20, then dispatch all batches via `asyncio.gather` with a `Semaphore(verify_concurrency)`
 - Each batch calls `provider.verify_domains(batch)` independently
-- At 8 concurrent batches × 20 items = processing 160 items simultaneously
-- Gemini paid T1 supports 150-500 RPM — 8 concurrent batches fits comfortably (each batch = 1 API call)
+- At 5 concurrent batches × 20 items = processing 100 items simultaneously
+- Gemini paid T1 supports 150-500 RPM — 5 concurrent batches at ~2-3s each = ~100-150 RPM, safely within even the lower end of the rate limit range
+- For users on higher tiers, `verify_concurrency` can be bumped via env var
 
 **Files changed:**
 - `backend/app/workers/pipeline.py` — `phase_verify()` restructured
-- `backend/app/config.py` — add `verify_concurrency` setting
+- `backend/app/config.py` — replace `llm_concurrency` with `verify_concurrency`
 
 ### 3. Increased Concurrency Limits
 
@@ -104,9 +129,10 @@ Chunk 3:     [Search] ────→     [Verify] ────→     [Normaliz
 | Setting | Current | New | Rationale |
 |---------|---------|-----|-----------|
 | `serper_concurrency` | 20 | 50 | Serper supports 300 QPS; 50 is conservative |
-| `verify_concurrency` | N/A (new) | 8 | Gemini paid T1 = 150-500 RPM; 8 batches/min is safe |
+| `verify_concurrency` | N/A (replaces `llm_concurrency`) | 5 | Gemini paid T1 = 150-500 RPM; 5 batches safe at lower end |
 | `normalize_concurrency` | 50 | 50 | Already good — HTTP HEAD requests are cheap |
 | `enrich_concurrency` | 10 | 30 | QuickEnrich supports 1,000 RPM; 30 is conservative |
+| `pipeline_batch_size` | N/A (new) | 200 | Micro-batch size for phase pipelining |
 
 All concurrency values remain configurable via environment variables.
 
@@ -138,7 +164,7 @@ All concurrency values remain configurable via environment variables.
 
 **Problem:** No retry logic for transient failures (429 rate limits, 5xx server errors) across any service.
 
-**Solution:** Create a shared async retry utility used by all HTTP-calling services.
+**Solution:** Create a shared async retry utility that handles both httpx and SDK-specific exceptions.
 
 **Retry config:**
 - `max_retries: 3`
@@ -146,57 +172,79 @@ All concurrency values remain configurable via environment variables.
 - Max delay: `15.0s`
 - Backoff multiplier: `2.0`
 - Jitter: random `0-0.5s` added to each delay
-- Retryable status codes: `429`, `500`, `502`, `503`, `504`
+- Retryable status codes (httpx): `429`, `500`, `502`, `503`, `504`
 
 **Implementation:**
 
 ```python
-async def retry_async(fn, max_retries=3, base_delay=1.0, max_delay=15.0):
+async def retry_async(
+    fn: Callable,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 15.0,
+    retryable_exceptions: tuple[type[Exception], ...] = (),
+) -> Any:
+    """Retry an async callable with exponential backoff and jitter.
+
+    Handles httpx.HTTPStatusError for retryable status codes,
+    plus any additional exception types passed via retryable_exceptions.
+    Logs each retry attempt with delay and reason.
+    """
     for attempt in range(max_retries + 1):
         try:
             return await fn()
         except httpx.HTTPStatusError as e:
             if e.response.status_code in RETRYABLE_CODES and attempt < max_retries:
                 delay = min(base_delay * (2 ** attempt) + random.uniform(0, 0.5), max_delay)
+                logger.warning("Retry %d/%d after %s (HTTP %d), delay=%.1fs",
+                    attempt + 1, max_retries, type(e).__name__, e.response.status_code, delay)
+                await asyncio.sleep(delay)
+            else:
+                raise
+        except retryable_exceptions as e:
+            if attempt < max_retries:
+                delay = min(base_delay * (2 ** attempt) + random.uniform(0, 0.5), max_delay)
+                logger.warning("Retry %d/%d after %s, delay=%.1fs",
+                    attempt + 1, max_retries, type(e).__name__, delay)
                 await asyncio.sleep(delay)
             else:
                 raise
 ```
 
 **Applied to:**
-- `serper.py` — `search_company()` HTTP call
-- `enrichment.py` — `enrich_company()` HTTP call
-- `gemini.py` / `openai_provider.py` — LLM API calls
-- `normalizer.py` — redirect resolution HTTP HEAD calls
+- `serper.py` — wrap `search_company()` HTTP call
+- `enrichment.py` — wrap `enrich_company()` HTTP call
+- `gemini.py` — wrap LLM call with `retryable_exceptions=(google.api_core.exceptions.ResourceExhausted, google.api_core.exceptions.ServiceUnavailable)`
+- `openai_provider.py` — wrap LLM call with `retryable_exceptions=(openai.RateLimitError, openai.APIStatusError)`
+- `normalizer.py` — wrap `resolve_redirect()` HTTP call
 
 **Files changed:**
 - `backend/app/services/retry.py` — new file, shared retry utility
 - `backend/app/services/serper.py` — wrap HTTP call with retry
 - `backend/app/services/enrichment.py` — wrap HTTP call with retry
-- `backend/app/services/llm/gemini.py` — wrap LLM call with retry
-- `backend/app/services/llm/openai_provider.py` — wrap LLM call with retry
+- `backend/app/services/llm/gemini.py` — wrap LLM call with retry (SDK exceptions)
+- `backend/app/services/llm/openai_provider.py` — wrap LLM call with retry (SDK exceptions)
 - `backend/app/services/normalizer.py` — wrap HTTP call with retry
 
 ### 6. Shared httpx Clients
 
-**Problem:** Each request creates a new `httpx.AsyncClient()` inside the semaphore block, paying TLS handshake cost every time.
+**Problem:** `batch_search()` (serper.py:105) and `batch_enrich()` (enrichment.py:88) each create a new `httpx.AsyncClient()` per-request inside their semaphore blocks, paying TLS handshake cost every time. Note: the individual service functions (`search_company`, `enrich_company`) already accept a `client` parameter — the issue is in the batch orchestration functions. `batch_normalize()` already creates a single shared client correctly.
 
-**Solution:** Create one shared `httpx.AsyncClient` per phase with connection pooling. Pass it into the batch functions.
+**Solution:** Create one shared `httpx.AsyncClient` per batch function with connection pooling, instead of per-request.
 
 **Implementation details:**
-- In pipeline phase functions, create `async with httpx.AsyncClient(timeout=15.0, limits=httpx.Limits(max_connections=concurrency)) as client:` once
-- Pass the client into `batch_search()`, `batch_enrich()`, `batch_normalize()`
-- Update these functions to accept an optional `client` parameter; if provided, use it instead of creating a new one
+- In `batch_search()`, move `httpx.AsyncClient()` creation outside the semaphore/gather loop — create one client and pass it to all concurrent `search_company()` calls
+- In `batch_enrich()`, same pattern — one shared client for all concurrent `enrich_company()` calls
+- Configure `httpx.Limits(max_connections=concurrency_limit)` on the shared client to match the semaphore size
+- `batch_normalize()` already does this correctly — no change needed
 
 **Files changed:**
-- `backend/app/workers/pipeline.py` — create clients at phase level
-- `backend/app/services/serper.py` — accept optional client parameter
-- `backend/app/services/enrichment.py` — accept optional client parameter
-- `backend/app/services/normalizer.py` — accept optional client parameter
+- `backend/app/services/serper.py` — restructure `batch_search()` client lifecycle
+- `backend/app/services/enrichment.py` — restructure `batch_enrich()` client lifecycle
 
 ### 7. DB Connection Pool Increase
 
-**Problem:** Pool size of 5 with `max_overflow=0` will bottleneck when pipelined phases run concurrently.
+**Problem:** Pool size of 5 with `max_overflow=0` will bottleneck when pipelined phases run concurrently (4 phase tasks + coordinator + SSE endpoint = 6+ concurrent sessions needed).
 
 **Solution:** Increase pool size to 15 with overflow of 5.
 
@@ -209,14 +257,14 @@ async def retry_async(fn, max_retries=3, base_delay=1.0, max_delay=15.0):
 
 | File | Changes |
 |------|---------|
-| `backend/app/workers/pipeline.py` | Major restructure: queue-based pipelining, parallel LLM, shared clients |
-| `backend/app/config.py` | New settings: `verify_concurrency`, `pipeline_batch_size`; bumped defaults |
-| `backend/app/services/retry.py` | **New file** — shared async retry utility |
-| `backend/app/services/serper.py` | Accept shared client, wrap with retry |
-| `backend/app/services/enrichment.py` | Add caching, accept shared client, wrap with retry |
-| `backend/app/services/llm/gemini.py` | Wrap with retry |
-| `backend/app/services/llm/openai_provider.py` | Wrap with retry |
-| `backend/app/services/normalizer.py` | Accept shared client, wrap with retry |
+| `backend/app/workers/pipeline.py` | Major restructure: queue-based pipelining, per-phase sessions, parallel LLM, shared clients |
+| `backend/app/config.py` | New: `verify_concurrency`, `pipeline_batch_size`; remove: `llm_concurrency`, `search_batch_size`; bumped defaults |
+| `backend/app/services/retry.py` | **New file** — shared async retry utility with configurable exception types and logging |
+| `backend/app/services/serper.py` | Shared httpx client in `batch_search()`, wrap with retry |
+| `backend/app/services/enrichment.py` | Add caching, shared httpx client in `batch_enrich()`, wrap with retry |
+| `backend/app/services/llm/gemini.py` | Wrap with retry (google SDK exceptions) |
+| `backend/app/services/llm/openai_provider.py` | Wrap with retry (openai SDK exceptions) |
+| `backend/app/services/normalizer.py` | Wrap with retry |
 | `backend/app/database.py` | Bump pool_size to 15, max_overflow to 5 |
 
 ---
@@ -237,7 +285,7 @@ async def retry_async(fn, max_retries=3, base_delay=1.0, max_delay=15.0):
 
 Primary gains come from:
 1. Phase pipelining (~2-3x) — phases overlap instead of waiting
-2. Parallel LLM (~2-3x on verify phase) — 8 concurrent batches vs 1
+2. Parallel LLM (~2-3x on verify phase) — 5 concurrent batches vs 1
 3. Bumped concurrency (~1.5-2x on search/enrich) — more parallel API calls
 4. Caching + client reuse (~10-20% on repeated domains) — eliminates redundant work
 
@@ -247,11 +295,14 @@ Primary gains come from:
 
 | Risk | Mitigation |
 |------|-----------|
-| Gemini rate limits hit at high concurrency | `verify_concurrency` is configurable; retry with backoff handles 429s |
-| Queue memory usage at 100K rows | Micro-batches of 200 rows keep queue depth bounded; rows are DB-backed, not held in memory |
+| Gemini rate limits at high concurrency | Default `verify_concurrency=5` is safe for lower T1 limits (150 RPM); configurable via env var for higher tiers |
+| Queue memory at 100K rows | Bounded queues (maxsize=5) with backpressure; queues hold only UUID lists, not full ORM objects; each phase re-queries from DB |
+| ORM object memory at 100K rows | Micro-batch loading from DB (200 rows at a time per phase) instead of preloading all rows; each phase only holds its current batch in memory |
 | Phase crash cascading | Error event propagation shuts down all phases cleanly; job marked as failed |
-| DB connection exhaustion | Pool increased to 15+5 overflow; monitor with connection pool metrics |
-| Serper credit burn on retries | Retry only on 429/5xx, not on 4xx client errors; cache prevents duplicate searches |
+| DB connection exhaustion | Pool increased to 15+5 overflow; each phase uses its own session |
+| Concurrent AsyncSession corruption | Eliminated — each phase task creates its own session; no shared sessions between concurrent tasks |
+| Serper credit burn on retries | Retry only on 429/5xx, not on 4xx client errors; cache prevents duplicate searches; failed parse before cache set means retry re-fetches (minor credit cost, acceptable) |
+| ARQ job timeout | Current timeout of 7200s (2 hours) is sufficient for optimized 100K processing (~30-45 min). Monitor and adjust if retry storms cause delays. |
 
 ---
 
