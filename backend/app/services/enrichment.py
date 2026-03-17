@@ -48,22 +48,26 @@ async def enrich_company(
         return response
 
     try:
-        # Make individual API calls per title and merge results
-        for title in job_titles:
+        # Fire all title queries concurrently for speed
+        async def _fetch_title(title: str) -> list[dict[str, object]]:
             response = await retry_async(
                 lambda t=title: _do_request(t), max_retries=3, base_delay=1.0
             )
             data = response.json()
-
             if isinstance(data, list):
-                raw_results: list[dict[str, object]] = data
-            elif isinstance(data, dict):
-                raw_results = data.get("data", data.get("results", []))
-            else:
-                raw_results = []
+                return data
+            if isinstance(data, dict):
+                return data.get("data", data.get("results", []))
+            return []
 
+        all_results = await asyncio.gather(
+            *[_fetch_title(t) for t in job_titles], return_exceptions=True
+        )
+
+        for raw_results in all_results:
+            if isinstance(raw_results, BaseException):
+                continue
             for record in raw_results[:max_contacts]:
-                # Deduplicate by email or full name to avoid repeats across title queries
                 email = str(record.get("email") or "")
                 first = str(record.get("first_name") or "")
                 last = str(record.get("last_name") or "")
@@ -86,7 +90,6 @@ async def enrich_company(
                     }
                 )
 
-        # Only cache successful results — never cache on error
         await cache_set(cache_key, {"contacts": contacts}, settings.cache_ttl_days)
     except Exception as exc:
         logger.warning("enrich_company error for domain=%s titles=%s: %s", domain, job_titles, exc)
