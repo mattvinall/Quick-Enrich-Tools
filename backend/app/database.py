@@ -10,8 +10,8 @@ from app.config import settings
 
 engine = create_async_engine(
     settings.database_url,
-    pool_size=5,
-    max_overflow=0,
+    pool_size=15,
+    max_overflow=5,
     echo=False,
     connect_args={
         "statement_cache_size": 0,
