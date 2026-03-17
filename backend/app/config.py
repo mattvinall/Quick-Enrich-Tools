@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     uploads_per_email_per_day: int = 50
     uploads_per_ip_per_day: int = 50
     downloads_per_job: int = 10
-    serper_concurrency: int = 20
-    llm_concurrency: int = 10
+    serper_concurrency: int = 50
+    verify_concurrency: int = 5
     normalize_concurrency: int = 50
-    enrich_concurrency: int = 10
-    search_batch_size: int = 100
+    enrich_concurrency: int = 30
+    pipeline_batch_size: int = 200
     llm_batch_size: int = 20
     normalize_batch_size: int = 200
     enrich_batch_size: int = 50
