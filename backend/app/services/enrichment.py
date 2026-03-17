@@ -4,10 +4,18 @@ import logging
 import httpx
 
 from app.config import settings
+from app.services.cache import cache_get, cache_set, make_cache_key
+from app.services.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
 _CONTACT_FIELDS = ("title", "first_name", "last_name", "email", "phone", "linkedin_url")
+
+
+def _enrich_cache_key(domain: str, job_titles: list[str], max_contacts: int) -> str:
+    """Build a deterministic cache key for enrichment results."""
+    sorted_titles = ", ".join(sorted(t.lower() for t in job_titles))
+    return make_cache_key("enrich", domain.lower(), sorted_titles, str(max_contacts))
 
 
 async def enrich_company(
@@ -18,16 +26,18 @@ async def enrich_company(
 ) -> list[dict[str, str]]:
     """Fetch contacts from QuickEnrich for a single domain.
 
-    Iterates over each job title and queries the dataset-search endpoint.
-    Returns a flat list of contact dicts with keys: title, first_name,
-    last_name, email, phone, linkedin_url.  On per-title errors the title
-    is skipped and processing continues.
+    Checks Redis cache first. On cache miss, calls the API and caches the result.
     """
-    contacts: list[dict[str, str]] = []
+    cache_key = _enrich_cache_key(domain, job_titles, max_contacts)
+    cached = await cache_get(cache_key)
+    if cached is not None and isinstance(cached, dict):
+        logger.info("ENRICH CACHE HIT: %s", domain)
+        return cached.get("contacts", [])  # type: ignore[return-value]
 
-    # Send all titles in one comma-separated API call (QuickEnrich supports this)
+    contacts: list[dict[str, str]] = []
     combined_titles = ", ".join(job_titles)
-    try:
+
+    async def _do_request() -> httpx.Response:
         response = await client.get(
             "https://app.quickenrich.io/api/employees/dataset-search",
             params={"company_url": domain, "title": combined_titles},
@@ -35,9 +45,12 @@ async def enrich_company(
             timeout=15.0,
         )
         response.raise_for_status()
+        return response
+
+    try:
+        response = await retry_async(_do_request, max_retries=3, base_delay=1.0)
         data = response.json()
 
-        # API returns { success, data: [...] } or a bare list
         if isinstance(data, list):
             raw_results: list[dict[str, object]] = data
         elif isinstance(data, dict):
@@ -53,9 +66,14 @@ async def enrich_company(
                     "last_name": str(record.get("last_name") or ""),
                     "email": str(record.get("email") or ""),
                     "phone": str(record.get("employee_phone") or record.get("phone") or ""),
-                    "linkedin_url": str(record.get("employee_linkedin") or record.get("linkedin_url") or ""),
+                    "linkedin_url": str(
+                        record.get("employee_linkedin") or record.get("linkedin_url") or ""
+                    ),
                 }
             )
+
+        # Only cache successful results — never cache on error
+        await cache_set(cache_key, {"contacts": contacts}, settings.cache_ttl_days)
     except Exception as exc:
         logger.warning("enrich_company error for domain=%s titles=%s: %s", domain, combined_titles, exc)
 
@@ -68,34 +86,24 @@ async def batch_enrich(
     max_contacts: int = 1,
     concurrency: int | None = None,
 ) -> dict[str, list[dict[str, str]]]:
-    """Enrich each unique domain once, respecting a concurrency semaphore.
-
-    Args:
-        domains_with_rows: Mapping of domain -> list of row indices that share
-            that domain (used only to identify unique domains here).
-        job_titles: Job titles to search for at each domain.
-        max_contacts: Maximum contacts to collect per job title.
-        concurrency: Max simultaneous requests; falls back to settings value.
-
-    Returns:
-        Mapping of domain -> list of contact dicts.
-    """
+    """Enrich each unique domain once with a shared httpx client."""
     limit = concurrency if concurrency is not None else settings.enrich_concurrency
     semaphore = asyncio.Semaphore(limit)
 
-    async def _enrich_one(domain: str) -> tuple[str, list[dict[str, str]] | BaseException]:
-        async with semaphore:
-            async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient() as client:
+
+        async def _enrich_one(domain: str) -> tuple[str, list[dict[str, str]] | BaseException]:
+            async with semaphore:
                 try:
                     result = await enrich_company(client, domain, job_titles, max_contacts)
                     return domain, result
                 except Exception as exc:
                     return domain, exc
 
-    raw_outcomes = await asyncio.gather(
-        *[_enrich_one(domain) for domain in domains_with_rows],
-        return_exceptions=True,
-    )
+        raw_outcomes = await asyncio.gather(
+            *[_enrich_one(domain) for domain in domains_with_rows],
+            return_exceptions=True,
+        )
 
     results: dict[str, list[dict[str, str]]] = {}
     for outcome in raw_outcomes:
