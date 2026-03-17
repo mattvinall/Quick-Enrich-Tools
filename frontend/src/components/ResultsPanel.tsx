@@ -27,7 +27,6 @@ interface ResultRow {
   contact_email?: string;
   contact_phone?: string;
   contact_linkedin?: string;
-  contact_linkedin?: string;
 }
 
 interface PreviewResponse {
@@ -84,13 +83,13 @@ const statVariants = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.08, duration: 0.4, ease: 'easeOut' },
+    transition: { delay: i * 0.08, duration: 0.4, ease: 'easeOut' as const },
   }),
 };
 
 const tableVariants = {
   hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut', delay: 0.4 } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as const, delay: 0.4 } },
 };
 
 export default function ResultsPanel({
@@ -135,8 +134,8 @@ export default function ResultsPanel({
               : undefined,
             contact_title: firstContact?.title || undefined,
             contact_email: firstContact?.email || undefined,
-            contact_phone: firstContact?.phone || firstContact?.employee_phone || undefined,
-            contact_linkedin: firstContact?.linkedin_url || firstContact?.employee_linkedin || undefined,
+            contact_phone: firstContact?.phone || undefined,
+            contact_linkedin: firstContact?.linkedin_url || undefined,
           };
         });
         setRows(mapped);
