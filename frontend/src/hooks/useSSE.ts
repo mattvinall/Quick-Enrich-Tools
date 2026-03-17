@@ -9,6 +9,7 @@ export interface JobProgress {
   current_phase: string | null;
   phase_progress: Record<string, { done: number; total: number }>;
   found_count: number;
+  enriched_count?: number;
   error?: string;
 }
 

@@ -18,6 +18,7 @@ export default function WebsiteFinderPage() {
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [preview, setPreview] = useState<Record<string, string>[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
 
   // Column config
   const [companyColumn, setCompanyColumn] = useState('');
@@ -49,14 +50,16 @@ export default function WebsiteFinderPage() {
     }
   }, [phase, progress?.status]);
 
-  function handleFileSelected(
-    selectedFile: File,
+  function handleDataReady(
+    selectedFile: File | null,
     parsedHeaders: string[],
-    parsedPreview: Record<string, string>[],
+    parsedRows: Record<string, string>[],
+    _rawText?: string,
   ) {
     setFile(selectedFile);
     setHeaders(parsedHeaders);
-    setPreview(parsedPreview);
+    setPreview(parsedRows);
+    setTotalRows(parsedRows.length);
 
     const detected = autoDetectColumns(parsedHeaders);
     setCompanyColumn(detected.company);
@@ -110,7 +113,7 @@ export default function WebsiteFinderPage() {
         <div className="bg-white border border-[#e5e7eb] rounded-xl shadow-sm p-6 sm:p-8">
           {/* Upload phase */}
           {phase === 'upload' && (
-            <UploadZone onFileSelected={handleFileSelected} />
+            <UploadZone onDataReady={handleDataReady} />
           )}
 
           {/* Config phase */}
@@ -119,6 +122,7 @@ export default function WebsiteFinderPage() {
               <ColumnMapper
                 headers={headers}
                 preview={preview}
+                totalRows={totalRows}
                 companyColumn={companyColumn}
                 locationColumn={locationColumn}
                 onCompanyColumnChange={setCompanyColumn}
@@ -241,6 +245,7 @@ export default function WebsiteFinderPage() {
               token={token}
               totalRows={progress.total_rows}
               foundCount={progress.found_count}
+              enrichedCount={progress.enriched_count ?? 0}
             />
           )}
         </div>
