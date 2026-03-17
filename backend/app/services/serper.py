@@ -6,6 +6,7 @@ import httpx
 
 from app.config import settings
 from app.services.cache import cache_get, cache_set, make_cache_key
+from app.services.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -99,27 +100,30 @@ async def batch_search(
 
     unique_keys = list(groups.keys())
 
-    async def _search_one(dedup_key: str) -> tuple[str, dict[str, object] | BaseException]:
-        company_name, _, location = dedup_key.partition("|")
-        async with semaphore:
-            async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient() as client:
+
+        async def _search_one(dedup_key: str) -> tuple[str, dict[str, object] | BaseException]:
+            company_name, _, location = dedup_key.partition("|")
+            async with semaphore:
                 try:
-                    result = await search_company(client, company_name, location)
+                    result = await retry_async(
+                        lambda cn=company_name, loc=location: search_company(client, cn, loc),
+                        max_retries=3,
+                        base_delay=1.0,
+                    )
                     return dedup_key, result
                 except Exception as exc:
                     return dedup_key, exc
 
-    raw_outcomes = await asyncio.gather(
-        *[_search_one(key) for key in unique_keys],
-        return_exceptions=True,
-    )
+        raw_outcomes = await asyncio.gather(
+            *[_search_one(key) for key in unique_keys],
+            return_exceptions=True,
+        )
 
     # Build a lookup from dedup_key -> search result (or None on error).
     key_to_result: dict[str, dict[str, object] | None] = {}
     for outcome in raw_outcomes:
         if isinstance(outcome, BaseException):
-            # gather with return_exceptions=True wraps task-level exceptions;
-            # inner exceptions are already handled inside _search_one.
             continue
         dedup_key, value = outcome
         if isinstance(value, BaseException):
@@ -143,6 +147,5 @@ async def batch_search(
                 }
             )
 
-    # Restore original row order.
-    output.sort(key=lambda item: int(item["row_index"]))  # type: ignore[arg-type]
+    output.sort(key=lambda item: int(item["row_index"]))
     return output
