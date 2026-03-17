@@ -5,6 +5,8 @@ import asyncio
 import httpx
 import tldextract
 
+from app.services.retry import retry_async
+
 BLOCKED_DOMAINS: frozenset[str] = frozenset(
     {
         "facebook.com",
@@ -98,15 +100,16 @@ def normalize_domain(raw_url: str) -> dict[str, str | bool | None]:
 
 
 async def resolve_redirect(client: httpx.AsyncClient, domain: str) -> str:
-    """Follow redirects for https://{domain} and return the final root domain.
-
-    Falls back to the original domain on any error.
-    """
+    """Follow redirects for https://{domain} and return the final root domain."""
     try:
-        response = await client.head(
-            f"https://{domain}",
-            follow_redirects=True,
-            timeout=5,
+        response = await retry_async(
+            lambda: client.head(
+                f"https://{domain}",
+                follow_redirects=True,
+                timeout=5,
+            ),
+            max_retries=2,
+            base_delay=0.5,
         )
         final_url = str(response.url)
         cleaned = clean_url(final_url)

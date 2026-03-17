@@ -3,6 +3,7 @@ import google.generativeai as genai
 
 from app.config import settings
 from app.services.llm.base import BaseLLMProvider, VerificationResult
+from app.services.retry import retry_async
 
 _PROMPT_TEMPLATE = """\
 You are a domain verification assistant. For each company below, determine whether the candidate domain is the official website of that company.
@@ -65,7 +66,21 @@ class GeminiProvider(BaseLLMProvider):
     async def verify_domains(self, batch: list[dict]) -> list[VerificationResult]:
         prompt = _PROMPT_TEMPLATE.format(items=_build_items_block(batch))
 
-        response = await self._model.generate_content_async(prompt)
+        try:
+            from google.api_core import exceptions as google_exceptions
+
+            response = await retry_async(
+                lambda: self._model.generate_content_async(prompt),
+                max_retries=3,
+                base_delay=1.0,
+                retryable_exceptions=(
+                    google_exceptions.ResourceExhausted,
+                    google_exceptions.ServiceUnavailable,
+                ),
+            )
+        except Exception:
+            return _fallback(batch)
+
         raw = response.text.strip()
 
         try:

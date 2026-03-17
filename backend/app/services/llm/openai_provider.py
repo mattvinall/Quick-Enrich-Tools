@@ -1,8 +1,10 @@
 import json
+import openai as openai_module
 from openai import AsyncOpenAI
 
 from app.config import settings
 from app.services.llm.base import BaseLLMProvider, VerificationResult
+from app.services.retry import retry_async
 
 _PROMPT_TEMPLATE = """\
 You are a domain verification assistant. For each company below, determine whether the candidate domain is the official website of that company.
@@ -58,12 +60,24 @@ class OpenAIProvider(BaseLLMProvider):
     async def verify_domains(self, batch: list[dict]) -> list[VerificationResult]:
         prompt = _PROMPT_TEMPLATE.format(items=_build_items_block(batch))
 
-        response = await self._client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.1,
-        )
+        try:
+            response = await retry_async(
+                lambda: self._client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                ),
+                max_retries=3,
+                base_delay=1.0,
+                retryable_exceptions=(
+                    openai_module.RateLimitError,
+                    openai_module.APIConnectionError,
+                    openai_module.InternalServerError,
+                ),
+            )
+        except Exception:
+            return _fallback(batch)
 
         raw = (response.choices[0].message.content or "").strip()
 
