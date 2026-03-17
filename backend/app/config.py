@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     storage_bucket: str = "quickenrich-results"
     frontend_url: str = "http://localhost:3000"
+    backend_url: str = "http://localhost:8000"
     max_file_size_mb: int = 50
     max_rows: int = 100_000
     uploads_per_email_per_day: int = 50

@@ -389,16 +389,23 @@ async def _phase_deliver(
         )
         all_results = list(result.scalars().all())
         found = sum(1 for r in all_results if r.normalized_domain)
+        contacts_enriched = sum(
+            1 for r in all_results if r.contacts and len(r.contacts) > 0
+        )
 
         email_capture_result = await db.execute(
             select(EmailCapture).where(EmailCapture.id == job.email_capture_id)
         )
         email_capture = email_capture_result.scalar_one()
 
-        download_url = f"{settings.frontend_url}/jobs/{job_id}/download"
+        # Build a JWT-authenticated download URL pointing to the backend API
+        from app.auth import create_token
+        download_token = create_token(email_capture.email, str(job_id))
+        download_url = f"{settings.backend_url}/api/v1/download/{job_id}?token={download_token}"
         job_stats: dict[str, int] = {
             "total_rows": job.total_rows,
             "websites_found": found,
+            "contacts_enriched": contacts_enriched,
         }
 
         try:

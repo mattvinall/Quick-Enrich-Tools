@@ -19,6 +19,7 @@ def send_results_email(to_email: str, download_url: str, job_stats: dict[str, in
 
     total: int = job_stats.get("total_rows", 0)
     found: int = job_stats.get("websites_found", 0)
+    contacts: int = job_stats.get("contacts_enriched", 0)
     match_rate: str = f"{round(found / total * 100)}%" if total else "0%"
 
     html = f"""<!DOCTYPE html>
@@ -68,6 +69,10 @@ def send_results_email(to_email: str, download_url: str, job_stats: dict[str, in
                         <td style="padding:6px 0;">
                           <span style="color:#6b7280;font-size:13px;">Match rate</span><br/>
                           <strong style="color:#2b7ec8;font-size:22px;">{match_rate}</strong>
+                        </td>
+                        <td style="padding:6px 0;">
+                          <span style="color:#6b7280;font-size:13px;">Contacts found</span><br/>
+                          <strong style="color:#111827;font-size:22px;">{contacts:,}</strong>
                         </td>
                       </tr>
                     </table>

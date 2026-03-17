@@ -35,12 +35,12 @@ async def enrich_company(
         return cached.get("contacts", [])  # type: ignore[return-value]
 
     contacts: list[dict[str, str]] = []
-    combined_titles = ", ".join(job_titles)
+    seen_keys: set[str] = set()
 
-    async def _do_request() -> httpx.Response:
+    async def _do_request(title: str) -> httpx.Response:
         response = await client.get(
             "https://app.quickenrich.io/api/employees/dataset-search",
-            params={"company_url": domain, "title": combined_titles},
+            params={"company_url": domain, "title": title},
             headers={"Authorization": f"Bearer {settings.quickenrich_api_key}"},
             timeout=15.0,
         )
@@ -48,34 +48,48 @@ async def enrich_company(
         return response
 
     try:
-        response = await retry_async(_do_request, max_retries=3, base_delay=1.0)
-        data = response.json()
-
-        if isinstance(data, list):
-            raw_results: list[dict[str, object]] = data
-        elif isinstance(data, dict):
-            raw_results = data.get("data", data.get("results", []))
-        else:
-            raw_results = []
-
-        for record in raw_results[:max_contacts * len(job_titles)]:
-            contacts.append(
-                {
-                    "title": str(record.get("title") or ""),
-                    "first_name": str(record.get("first_name") or ""),
-                    "last_name": str(record.get("last_name") or ""),
-                    "email": str(record.get("email") or ""),
-                    "phone": str(record.get("employee_phone") or record.get("phone") or ""),
-                    "linkedin_url": str(
-                        record.get("employee_linkedin") or record.get("linkedin_url") or ""
-                    ),
-                }
+        # Make individual API calls per title and merge results
+        for title in job_titles:
+            response = await retry_async(
+                lambda t=title: _do_request(t), max_retries=3, base_delay=1.0
             )
+            data = response.json()
+
+            if isinstance(data, list):
+                raw_results: list[dict[str, object]] = data
+            elif isinstance(data, dict):
+                raw_results = data.get("data", data.get("results", []))
+            else:
+                raw_results = []
+
+            for record in raw_results[:max_contacts]:
+                # Deduplicate by email or full name to avoid repeats across title queries
+                email = str(record.get("email") or "")
+                first = str(record.get("first_name") or "")
+                last = str(record.get("last_name") or "")
+                dedup_key = email.lower() if email and email != "N/A" else f"{first}|{last}".lower()
+
+                if dedup_key in seen_keys:
+                    continue
+                seen_keys.add(dedup_key)
+
+                contacts.append(
+                    {
+                        "title": str(record.get("title") or ""),
+                        "first_name": first,
+                        "last_name": last,
+                        "email": email,
+                        "phone": str(record.get("employee_phone") or record.get("phone") or ""),
+                        "linkedin_url": str(
+                            record.get("employee_linkedin") or record.get("linkedin_url") or ""
+                        ),
+                    }
+                )
 
         # Only cache successful results — never cache on error
         await cache_set(cache_key, {"contacts": contacts}, settings.cache_ttl_days)
     except Exception as exc:
-        logger.warning("enrich_company error for domain=%s titles=%s: %s", domain, combined_titles, exc)
+        logger.warning("enrich_company error for domain=%s titles=%s: %s", domain, job_titles, exc)
 
     return contacts
 
