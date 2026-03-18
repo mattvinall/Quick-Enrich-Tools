@@ -414,8 +414,9 @@ async def _phase_deliver(
                 download_url=download_url,
                 job_stats=job_stats,
             )
-        except Exception as e:
-            logger.warning("Failed to send results email for job_id=%s: %s", job_id, e)
+            logger.info("Results email sent successfully for job_id=%s to=%s", job_id, email_capture.email)
+        except Exception:
+            logger.exception("Failed to send results email for job_id=%s to=%s", job_id, email_capture.email)
 
         await update_job_progress(db, job_id, "deliver", 1, 1)
 
