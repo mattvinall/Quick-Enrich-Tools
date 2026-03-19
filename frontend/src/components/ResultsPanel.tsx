@@ -40,6 +40,7 @@ interface ResultsPanelProps {
   totalRows: number;
   foundCount: number;
   enrichedCount: number;
+  downloadUrlOverride?: string;
 }
 
 type FilterTab = 'all' | 'found' | 'not_found';
@@ -98,6 +99,7 @@ export default function ResultsPanel({
   totalRows,
   foundCount,
   enrichedCount,
+  downloadUrlOverride,
 }: ResultsPanelProps) {
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,7 +111,7 @@ export default function ResultsPanel({
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const matchRate = totalRows > 0 ? Math.round((foundCount / totalRows) * 100) : 0;
-  const downloadUrl = getDownloadUrl(jobId, token);
+  const downloadUrl = downloadUrlOverride ?? getDownloadUrl(jobId, token);
 
   // Determine whether enrichment columns are present
   // Count actual rows with contact data (not just the prop)
