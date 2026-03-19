@@ -12,6 +12,12 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
       <MapPin className="w-4 h-4" />
     </div>
   ),
+  "company-intel": (
+    <div className="flex items-center gap-1 text-primary">
+      <Search className="w-5 h-5" />
+      <Users className="w-4 h-4" />
+    </div>
+  ),
 };
 
 export default function HomePage() {

@@ -26,6 +26,17 @@ export const tools: ToolConfig[] = [
       location: /location|city|state|address|geo|region/i,
     },
   },
+  {
+    slug: "company-intel",
+    name: "Company/People Intel by URL",
+    description:
+      "Extract business intelligence from company websites. Paste URLs or company names to get industry, contacts, target market, and more.",
+    isActive: true,
+    backendUrl: API_BASE_URL,
+    requiredColumns: [],
+    optionalColumns: [],
+    columnPatterns: {},
+  },
 ];
 
 export function getToolBySlug(slug: string): ToolConfig | undefined {

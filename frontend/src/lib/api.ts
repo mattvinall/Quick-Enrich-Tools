@@ -110,3 +110,41 @@ export function pushToClay(
     body: JSON.stringify({ webhook_url: webhookUrl }),
   });
 }
+
+export interface ExtractionOptions {
+  industry_description: boolean;
+  target_market: boolean;
+  company_people: boolean;
+  homepage_raw_text: boolean;
+}
+
+export interface ExtractRequest {
+  lines: string[];
+  options: ExtractionOptions;
+  serper_api_key: string;
+  quickenrich_api_key: string;
+}
+
+export interface ExtractResponse {
+  job_id: string;
+  total_rows: number;
+  token: string;
+}
+
+export function submitExtraction(
+  body: ExtractRequest,
+  token: string,
+): Promise<ExtractResponse> {
+  return fetchAPI<ExtractResponse>(`${API_URL}/api/v1/intel/extract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export function getIntelDownloadUrl(jobId: string, token: string): string {
+  return `${API_URL}/api/v1/intel/download/${jobId}?token=${encodeURIComponent(token)}`;
+}
