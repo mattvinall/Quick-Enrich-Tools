@@ -5,8 +5,11 @@ If SCRAPE_DO_API_KEY is set, routes through Scrape.do proxy for anti-bot handlin
 """
 
 import asyncio
+import ipaddress
 import logging
+import random
 import re
+import socket
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -19,6 +22,7 @@ from app.services.retry import retry_async
 logger = logging.getLogger(__name__)
 
 _MAX_TEXT_PER_PAGE = 8_000
+_MIN_CONTENT_LENGTH = 200  # Minimum chars to consider a scrape successful
 
 # Page URL patterns scored by relevance category
 _HIGH_PATTERNS = re.compile(
@@ -40,11 +44,64 @@ _OPTION_PRIORITIES = {
 }
 
 
-_DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+# Rotating user agents — inspired by dmand-v2 browser pool
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+]
+
+# Private/internal IP ranges to block (SSRF protection — from dmand-v2)
+_BLOCKED_IP_PREFIXES = ("127.", "10.", "0.", "169.254.", "192.168.")
+_BLOCKED_HOSTNAMES = {"localhost", "metadata.google.internal", "metadata.internal"}
+
+
+def _get_headers() -> dict[str, str]:
+    """Return request headers with a randomly rotated User-Agent."""
+    return {
+        "User-Agent": random.choice(_USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+
+def _is_safe_url(url: str) -> bool:
+    """Check URL is safe to fetch (not targeting internal/private networks).
+
+    Prevents SSRF attacks when scraping user-provided URLs.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+
+        if not hostname:
+            return False
+
+        # Block known internal hostnames
+        if hostname.lower() in _BLOCKED_HOSTNAMES:
+            return False
+
+        # Only allow http/https
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        # Resolve hostname and check for private IPs
+        try:
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            for _, _, _, _, sockaddr in addr_info:
+                ip = sockaddr[0]
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+                    logger.warning("SSRF blocked: %s resolves to private IP %s", hostname, ip)
+                    return False
+        except (socket.gaierror, ValueError):
+            pass  # DNS resolution failed — let httpx handle it
+
+        return True
+    except Exception:
+        return False
 
 
 async def scrape_page(
@@ -78,11 +135,15 @@ async def scrape_page(
         response.raise_for_status()
         return response.text
 
+    # SSRF check for direct fetches (user-provided URLs)
+    if not _is_safe_url(url):
+        raise ValueError(f"URL blocked by SSRF protection: {url}")
+
     # Direct fetch (free, works for most company sites)
     response = await retry_async(
         lambda: client.get(
             url,
-            headers=_DEFAULT_HEADERS,
+            headers=_get_headers(),
             follow_redirects=True,
             timeout=settings.scrape_timeout,
         ),
@@ -196,7 +257,7 @@ async def crawl_site(
         homepage_text = extract_text_from_html(homepage_html)
 
         # Fallback to render=true if content too short and Scrape.do is available
-        if len(homepage_text) < 500 and settings.scrape_do_api_key:
+        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
             try:
                 homepage_html = await scrape_page(client, homepage_url, render=True)
                 homepage_text = extract_text_from_html(homepage_html)
