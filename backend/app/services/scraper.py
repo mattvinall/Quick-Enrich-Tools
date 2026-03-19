@@ -1,7 +1,7 @@
 """Web scraper — crawl company websites and extract visible text.
 
-Uses direct httpx requests by default (free, works for ~90% of sites).
-If SCRAPE_DO_API_KEY is set, routes through Scrape.do proxy for anti-bot handling.
+Primary: Spider.cloud API (fast, handles anti-bot, JS rendering via smart mode).
+Fallback: Direct httpx if SPIDER_API_KEY is not set (free but lower success rate).
 """
 
 import asyncio
@@ -111,35 +111,41 @@ async def scrape_page(
 ) -> str:
     """Scrape a single URL. Returns raw HTML string.
 
-    If SCRAPE_DO_API_KEY is configured, routes through Scrape.do proxy.
+    If SPIDER_API_KEY is configured, uses Spider.cloud API (recommended).
     Otherwise, fetches directly via httpx with a browser-like User-Agent.
     """
-    if settings.scrape_do_api_key:
-        # Route through Scrape.do proxy
-        params = {
-            "token": settings.scrape_do_api_key,
-            "url": url,
-        }
-        if render:
-            params["render"] = "true"
-
+    if settings.spider_api_key:
+        # Spider.cloud API — handles anti-bot, JS rendering via smart mode
         response = await retry_async(
-            lambda: client.get(
-                "https://api.scrape.do",
-                params=params,
+            lambda: client.post(
+                "https://api.spider.cloud/crawl",
+                headers={
+                    "Authorization": f"Bearer {settings.spider_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "url": url,
+                    "limit": 1,
+                    "return_format": "html",
+                    "request": "smart",  # Auto-detects if JS rendering is needed
+                },
                 timeout=settings.scrape_timeout,
             ),
             max_retries=2,
             base_delay=1.0,
         )
         response.raise_for_status()
-        return response.text
+        data = response.json()
+        # Spider returns a list of crawled pages
+        if isinstance(data, list) and data:
+            return data[0].get("content", "")
+        return ""
 
     # SSRF check for direct fetches (user-provided URLs)
     if not _is_safe_url(url):
         raise ValueError(f"URL blocked by SSRF protection: {url}")
 
-    # Direct fetch (free, works for most company sites)
+    # Direct fetch fallback (free, works for most company sites)
     response = await retry_async(
         lambda: client.get(
             url,
@@ -256,8 +262,8 @@ async def crawl_site(
         homepage_html = await scrape_page(client, homepage_url, render=False)
         homepage_text = extract_text_from_html(homepage_html)
 
-        # Fallback to render=true if content too short and Scrape.do is available
-        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
+        # Fallback to render=true if content too short and Spider is available
+        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.spider_api_key:
             try:
                 homepage_html = await scrape_page(client, homepage_url, render=True)
                 homepage_text = extract_text_from_html(homepage_html)
