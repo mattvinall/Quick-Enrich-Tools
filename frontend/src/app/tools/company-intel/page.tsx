@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Building2 } from 'lucide-react';
+import { Search, Building2, Upload, ClipboardPaste, FileText, X, AlertCircle } from 'lucide-react';
+import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 import IntelInputPanel, { computeLineStats } from '@/components/IntelInputPanel';
 import ExtractionSettings from '@/components/ExtractionSettings';
@@ -26,9 +28,78 @@ export default function CompanyIntelPage() {
   const [phase, setPhase] = useState<Phase>('input');
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
 
-  // Input
+  // Input — paste mode
   const [inputText, setInputText] = useState('');
-  const lineStats = useMemo(() => computeLineStats(inputText), [inputText]);
+
+  // Input — CSV mode
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [selectedColumn, setSelectedColumn] = useState('');
+  const [csvError, setCsvError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [inputMode, setInputMode] = useState<'paste' | 'csv'>('paste');
+
+  // Derived lines from either input mode
+  const lines = useMemo(() => {
+    if (inputMode === 'csv' && selectedColumn && csvRows.length > 0) {
+      return csvRows.map(row => (row[selectedColumn] || '').trim()).filter(Boolean);
+    }
+    return inputText.split('\n').map(l => l.trim()).filter(Boolean);
+  }, [inputMode, inputText, csvRows, selectedColumn]);
+
+  const lineStats = useMemo(() => {
+    const text = lines.join('\n');
+    return computeLineStats(text);
+  }, [lines]);
+
+  // CSV parsing
+  const handleCsvFile = useCallback((file: File) => {
+    setCsvError('');
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setCsvError('Invalid file type. Please upload a .csv file.');
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setCsvError('File is too large. Maximum allowed size is 50MB.');
+      return;
+    }
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.trim(),
+      complete: (results) => {
+        const headers = results.meta.fields ?? [];
+        if (headers.length === 0) {
+          setCsvError('CSV file appears to have no headers.');
+          return;
+        }
+        if (results.data.length > 100_000) {
+          setCsvError(`CSV has ${results.data.length.toLocaleString()} rows. Maximum is 100,000.`);
+          return;
+        }
+        setCsvFile(file);
+        setCsvHeaders(headers);
+        setCsvRows(results.data);
+        // Auto-select first column that looks like a URL/company column
+        const urlCol = headers.find(h => /url|website|domain|link/i.test(h));
+        const companyCol = headers.find(h => /company|name|org|business/i.test(h));
+        setSelectedColumn(urlCol || companyCol || headers[0]);
+      },
+      error: () => {
+        setCsvError('Failed to parse CSV file.');
+      },
+    });
+  }, []);
+
+  const handleRemoveCsv = () => {
+    setCsvFile(null);
+    setCsvHeaders([]);
+    setCsvRows([]);
+    setSelectedColumn('');
+    setCsvError('');
+  };
 
   // Extraction options
   const [industryDescription, setIndustryDescription] = useState(true);
@@ -107,8 +178,6 @@ export default function CompanyIntelPage() {
     try {
       const capture = await captureEmail(email, 'company-intel', 'company-intel-page');
 
-      const lines = inputText.split('\n').filter((l) => l.trim());
-
       const result = await submitExtraction(
         {
           lines,
@@ -171,19 +240,119 @@ export default function CompanyIntelPage() {
                 <div>
                   <h2 className="text-2xl font-bold text-text-primary">Extract Deep Insights</h2>
                   <p className="text-text-secondary mt-1">
-                    Paste a list of URLs or company names (one per line). We&apos;ll automatically determine
+                    Paste a list of URLs or company names, or upload a CSV. We&apos;ll automatically determine
                     if we need to search for the website or scrape it directly to gather the intelligence you need.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                  {/* Textarea — 3 cols */}
+                  {/* Input area — 3 cols */}
                   <div className="lg:col-span-3">
-                    <IntelInputPanel
-                      value={inputText}
-                      onChange={setInputText}
-                      lineStats={lineStats}
-                    />
+                    <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as 'paste' | 'csv')} className="w-full">
+                      <TabsList className="mb-2">
+                        <TabsTrigger value="paste" className="gap-2">
+                          <ClipboardPaste className="h-4 w-4" />
+                          Paste List
+                        </TabsTrigger>
+                        <TabsTrigger value="csv" className="gap-2">
+                          <Upload className="h-4 w-4" />
+                          Upload CSV
+                        </TabsTrigger>
+                      </TabsList>
+
+                      {/* Paste tab */}
+                      <TabsContent value="paste">
+                        <IntelInputPanel
+                          value={inputText}
+                          onChange={setInputText}
+                          lineStats={lineStats}
+                        />
+                      </TabsContent>
+
+                      {/* CSV tab */}
+                      <TabsContent value="csv">
+                        <div className="space-y-3">
+                          {csvFile ? (
+                            <div className="space-y-3">
+                              {/* File pill */}
+                              <div className="flex items-center gap-3 rounded-xl border border-border bg-white p-4 shadow-sm">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                                  <FileText className="h-5 w-5 text-primary" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium text-text-primary">{csvFile.name}</p>
+                                  <p className="text-xs text-text-secondary">
+                                    {csvRows.length.toLocaleString()} rows &middot; {csvHeaders.length} columns
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveCsv}
+                                  aria-label="Remove file"
+                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              {/* Column picker */}
+                              <div className="space-y-1.5">
+                                <label className="text-sm font-medium text-text-primary">
+                                  Which column contains the URLs or company names?
+                                </label>
+                                <select
+                                  value={selectedColumn}
+                                  onChange={(e) => setSelectedColumn(e.target.value)}
+                                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                >
+                                  {csvHeaders.map((h) => (
+                                    <option key={h} value={h}>{h}</option>
+                                  ))}
+                                </select>
+                                <p className="text-xs text-text-secondary">
+                                  {lines.length.toLocaleString()} values found in this column
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              onDragOver={(e) => { e.preventDefault(); }}
+                              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleCsvFile(f); }}
+                              onClick={() => fileInputRef.current?.click()}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+                              className="group flex cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-border px-8 py-12 text-center hover:border-primary/60 hover:bg-gray-50/60 transition-colors"
+                            >
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".csv"
+                                className="hidden"
+                                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvFile(f); e.target.value = ''; }}
+                              />
+                              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gray-100 text-gray-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                                <Upload className="h-6 w-6" />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-sm font-semibold text-text-primary">Drag & drop your CSV file</p>
+                                <p className="text-sm text-text-secondary">
+                                  or <span className="font-medium text-primary underline underline-offset-2">click to browse</span>
+                                </p>
+                                <p className="text-xs text-gray-400">.csv only &mdash; max 50MB</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {csvError && (
+                            <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-600" role="alert">
+                              <AlertCircle className="h-4 w-4 shrink-0" />
+                              {csvError}
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </Tabs>
                   </div>
 
                   {/* Settings — 2 cols */}
@@ -315,6 +484,7 @@ export default function CompanyIntelPage() {
                       clearSession();
                       setPhase("input");
                       setInputText("");
+                      handleRemoveCsv();
                     }}
                   >
                     Start a new extraction
