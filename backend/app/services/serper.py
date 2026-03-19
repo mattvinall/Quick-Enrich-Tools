@@ -24,6 +24,7 @@ async def search_company(
     client: httpx.AsyncClient,
     company_name: str,
     location: str = "",
+    api_key: str | None = None,
 ) -> dict[str, object]:
     """Search for a company's website via the Serper API.
 
@@ -46,7 +47,7 @@ async def search_company(
     response = await client.post(
         "https://google.serper.dev/search",
         headers={
-            "X-API-KEY": settings.serper_api_key,
+            "X-API-KEY": api_key or settings.serper_api_key,
             "Content-Type": "application/json",
         },
         json={"q": query, "num": 3},
@@ -82,6 +83,7 @@ async def search_company(
 async def batch_search(
     rows: list[dict[str, object]],
     concurrency: int | None = None,
+    api_key: str | None = None,
 ) -> list[dict[str, object]]:
     """Search each unique company_name/location pair once and map results back.
 
@@ -107,7 +109,7 @@ async def batch_search(
             async with semaphore:
                 try:
                     result = await retry_async(
-                        lambda cn=company_name, loc=location: search_company(client, cn, loc),
+                        lambda cn=company_name, loc=location: search_company(client, cn, loc, api_key=api_key),
                         max_retries=3,
                         base_delay=1.0,
                     )

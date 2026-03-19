@@ -23,6 +23,7 @@ async def enrich_company(
     domain: str,
     job_titles: list[str],
     max_contacts: int = 1,
+    api_key: str | None = None,
 ) -> list[dict[str, str]]:
     """Fetch contacts from QuickEnrich for a single domain.
 
@@ -41,7 +42,7 @@ async def enrich_company(
         response = await client.get(
             "https://app.quickenrich.io/api/employees/dataset-search",
             params={"company_url": domain, "title": title},
-            headers={"Authorization": f"Bearer {settings.quickenrich_api_key}"},
+            headers={"Authorization": f"Bearer {api_key or settings.quickenrich_api_key}"},
             timeout=15.0,
         )
         response.raise_for_status()
@@ -102,6 +103,7 @@ async def batch_enrich(
     job_titles: list[str],
     max_contacts: int = 1,
     concurrency: int | None = None,
+    api_key: str | None = None,
 ) -> dict[str, list[dict[str, str]]]:
     """Enrich each unique domain once with a shared httpx client."""
     limit = concurrency if concurrency is not None else settings.enrich_concurrency
@@ -112,7 +114,7 @@ async def batch_enrich(
         async def _enrich_one(domain: str) -> tuple[str, list[dict[str, str]] | BaseException]:
             async with semaphore:
                 try:
-                    result = await enrich_company(client, domain, job_titles, max_contacts)
+                    result = await enrich_company(client, domain, job_titles, max_contacts, api_key=api_key)
                     return domain, result
                 except Exception as exc:
                     return domain, exc
