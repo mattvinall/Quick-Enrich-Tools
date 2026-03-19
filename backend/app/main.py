@@ -17,18 +17,22 @@ logger = logging.getLogger(__name__)
 from app.config import settings
 from app.database import engine
 from app.routers import clay, download, email_capture, jobs, tools, upload
+from app.routers import intel
 
 
 async def _run_arq_worker() -> None:
     """Start the ARQ worker in-process."""
     from arq import Worker
-    from app.workers.pipeline import WorkerSettings
+    from app.workers.pipeline import WorkerSettings as P2WorkerSettings
+    from app.workers.intel_pipeline import run_intel_pipeline
+
+    all_functions = list(P2WorkerSettings.functions) + [run_intel_pipeline]
 
     worker = Worker(
-        functions=WorkerSettings.functions,
-        redis_settings=WorkerSettings.redis_settings,
-        max_jobs=WorkerSettings.max_jobs,
-        job_timeout=WorkerSettings.job_timeout,
+        functions=all_functions,
+        redis_settings=P2WorkerSettings.redis_settings,
+        max_jobs=P2WorkerSettings.max_jobs,
+        job_timeout=P2WorkerSettings.job_timeout,
     )
     logger.info("ARQ worker starting in-process")
     await worker.async_run()
@@ -69,6 +73,7 @@ app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(download.router, prefix="/api/v1")
 app.include_router(clay.router, prefix="/api/v1")
 app.include_router(tools.router, prefix="/api/v1")
+app.include_router(intel.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])
