@@ -85,8 +85,9 @@ export default function ExtractionSettings({
   const titleInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
+  const titles = jobTitles ?? [];
   const filteredSuggestions = SUGGESTED_TITLES.filter(
-    (t) => !jobTitles.includes(t) && t.toLowerCase().includes(titleInput.toLowerCase())
+    (t) => !titles.includes(t) && t.toLowerCase().includes(titleInput.toLowerCase())
   );
 
   useEffect(() => {
