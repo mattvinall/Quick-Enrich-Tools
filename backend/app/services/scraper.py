@@ -1,4 +1,8 @@
-"""Scrape.do integration — crawl company websites and extract visible text."""
+"""Web scraper — crawl company websites and extract visible text.
+
+Uses direct httpx requests by default (free, works for ~90% of sites).
+If SCRAPE_DO_API_KEY is set, routes through Scrape.do proxy for anti-bot handling.
+"""
 
 import asyncio
 import logging
@@ -36,23 +40,50 @@ _OPTION_PRIORITIES = {
 }
 
 
+_DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
 async def scrape_page(
     client: httpx.AsyncClient,
     url: str,
     render: bool = False,
 ) -> str:
-    """Scrape a single URL via Scrape.do API. Returns raw HTML string."""
-    params = {
-        "token": settings.scrape_do_api_key,
-        "url": url,
-    }
-    if render:
-        params["render"] = "true"
+    """Scrape a single URL. Returns raw HTML string.
 
+    If SCRAPE_DO_API_KEY is configured, routes through Scrape.do proxy.
+    Otherwise, fetches directly via httpx with a browser-like User-Agent.
+    """
+    if settings.scrape_do_api_key:
+        # Route through Scrape.do proxy
+        params = {
+            "token": settings.scrape_do_api_key,
+            "url": url,
+        }
+        if render:
+            params["render"] = "true"
+
+        response = await retry_async(
+            lambda: client.get(
+                "https://api.scrape.do",
+                params=params,
+                timeout=settings.scrape_timeout,
+            ),
+            max_retries=2,
+            base_delay=1.0,
+        )
+        response.raise_for_status()
+        return response.text
+
+    # Direct fetch (free, works for most company sites)
     response = await retry_async(
         lambda: client.get(
-            "https://api.scrape.do",
-            params=params,
+            url,
+            headers=_DEFAULT_HEADERS,
+            follow_redirects=True,
             timeout=settings.scrape_timeout,
         ),
         max_retries=2,
@@ -162,10 +193,10 @@ async def crawl_site(
     # Step 1: Scrape homepage
     try:
         homepage_html = await scrape_page(client, homepage_url, render=False)
-
-        # Fallback to render=true if content too short
         homepage_text = extract_text_from_html(homepage_html)
-        if len(homepage_text) < 500:
+
+        # Fallback to render=true if content too short and Scrape.do is available
+        if len(homepage_text) < 500 and settings.scrape_do_api_key:
             try:
                 homepage_html = await scrape_page(client, homepage_url, render=True)
                 homepage_text = extract_text_from_html(homepage_html)
