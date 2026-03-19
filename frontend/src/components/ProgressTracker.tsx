@@ -7,23 +7,30 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
-const PHASES = ['Search', 'Verify', 'Normalize', 'Enrich', 'Deliver'] as const;
-type Phase = (typeof PHASES)[number];
+import { Globe, Cpu } from 'lucide-react';
 
-const PHASE_ICONS: Record<Phase, React.ElementType> = {
+const DEFAULT_PHASES = ['Search', 'Verify', 'Normalize', 'Enrich', 'Deliver'] as const;
+
+const ALL_PHASE_ICONS: Record<string, React.ElementType> = {
   Search: Search,
   Verify: ShieldCheck,
   Normalize: Filter,
   Enrich: Users,
   Deliver: Send,
+  Resolve: Search,
+  Crawl: Globe,
+  Extract: Cpu,
 };
 
-const PHASE_LABELS: Record<Phase, string> = {
+const ALL_PHASE_LABELS: Record<string, string> = {
   Search: 'Searching',
   Verify: 'Verifying',
   Normalize: 'Normalizing',
   Enrich: 'Enriching',
   Deliver: 'Delivering',
+  Resolve: 'Resolving',
+  Crawl: 'Crawling',
+  Extract: 'Extracting',
 };
 
 interface PhaseEntry {
@@ -38,11 +45,12 @@ interface ProgressTrackerProps {
   processedRows: number;
   totalRows: number;
   foundCount: number;
+  phases?: readonly string[];
 }
 
-function phaseIndex(phase: string | null): number {
+function findPhaseIndex(phases: readonly string[], phase: string | null): number {
   if (!phase) return -1;
-  return PHASES.findIndex((p) => p.toLowerCase() === phase.toLowerCase());
+  return phases.findIndex((p) => p.toLowerCase() === phase.toLowerCase());
 }
 
 // Animated counter that smoothly increments to the target value
@@ -92,10 +100,11 @@ export default function ProgressTracker({
   processedRows,
   totalRows,
   foundCount,
+  phases = DEFAULT_PHASES,
 }: ProgressTrackerProps) {
-  const currentIndex = phaseIndex(currentPhase);
+  const currentIndex = findPhaseIndex(phases, currentPhase);
   const isComplete = status === 'completed';
-  const activeIndex = isComplete ? PHASES.length : currentIndex;
+  const activeIndex = isComplete ? phases.length : currentIndex;
 
   const currentEntry: PhaseEntry | undefined = currentPhase && phaseProgress
     ? phaseProgress[currentPhase]
@@ -114,11 +123,11 @@ export default function ProgressTracker({
   // Phase label for the progress section
   const activePhase = isComplete
     ? null
-    : (PHASES[activeIndex] as Phase | undefined);
+    : phases[activeIndex] ?? null;
   const progressLabel = isComplete
     ? 'Complete'
     : activePhase
-      ? `${PHASE_LABELS[activePhase]} domains…`
+      ? `${ALL_PHASE_LABELS[activePhase] ?? activePhase}…`
       : 'Waiting…';
 
   // Simple ETA: remaining rows at current throughput (rough)
@@ -134,10 +143,10 @@ export default function ProgressTracker({
     <div className="space-y-5">
       {/* Phase Stepper */}
       <div className="flex items-start">
-        {PHASES.map((phase, idx) => {
+        {phases.map((phase, idx) => {
           const isPast = idx < activeIndex;
           const isCurrent = idx === activeIndex;
-          const Icon = PHASE_ICONS[phase];
+          const Icon = ALL_PHASE_ICONS[phase] ?? Search;
 
           return (
             <div key={phase} className="flex items-start flex-1 last:flex-none">
@@ -230,7 +239,7 @@ export default function ProgressTracker({
               </div>
 
               {/* Connector line */}
-              {idx < PHASES.length - 1 && (
+              {idx < phases.length - 1 && (
                 <div className="relative h-0.5 flex-1 mx-1.5 mt-[18px] bg-gray-200 rounded-full overflow-hidden">
                   <motion.div
                     className="absolute inset-y-0 left-0 bg-green-400 rounded-full"

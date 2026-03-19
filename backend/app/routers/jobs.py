@@ -186,18 +186,17 @@ async def job_sse(
                 )
                 found_count: int = found_count_result.scalar_one() or 0
 
-                phase_progress: float | None = None
-                if isinstance(job.phase_progress, dict):
-                    raw = job.phase_progress.get("progress")
-                    if isinstance(raw, (int, float)):
-                        phase_progress = float(raw)
+                # Send phase_progress as {current_phase: {done, total}} for frontend
+                phase_progress_out: dict = {}
+                if isinstance(job.phase_progress, dict) and job.current_phase:
+                    phase_progress_out = {job.current_phase: job.phase_progress}
 
                 event_data = json.dumps({
                     "status": job.status,
                     "processed_rows": job.processed_rows,
                     "total_rows": job.total_rows,
                     "current_phase": job.current_phase,
-                    "phase_progress": phase_progress,
+                    "phase_progress": phase_progress_out,
                     "found_count": found_count,
                 })
                 yield f"data: {event_data}\n\n"
