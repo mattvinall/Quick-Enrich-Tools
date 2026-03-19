@@ -111,6 +111,10 @@ export default function CompanyIntelPage() {
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
   const [serperApiKey, setSerperApiKey] = useState('');
 
+  // Contact config
+  const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
+  const [maxContacts, setMaxContacts] = useState(3);
+
   // Job state — restore from localStorage
   const [jobId, setJobId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -189,6 +193,8 @@ export default function CompanyIntelPage() {
           },
           serper_api_key: serperApiKey,
           quickenrich_api_key: quickenrichApiKey,
+          job_titles: companyPeople ? jobTitles : [],
+          max_contacts: companyPeople ? maxContacts : 1,
         },
         capture.token,
       );
@@ -371,6 +377,10 @@ export default function CompanyIntelPage() {
                       serperApiKey={serperApiKey}
                       onSerperApiKeyChange={setSerperApiKey}
                       showSerperKey={lineStats.names > 0}
+                      jobTitles={jobTitles}
+                      onJobTitlesChange={setJobTitles}
+                      maxContacts={maxContacts}
+                      onMaxContactsChange={setMaxContacts}
                     />
                   </div>
                 </div>

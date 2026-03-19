@@ -123,6 +123,8 @@ export interface ExtractRequest {
   options: ExtractionOptions;
   serper_api_key: string;
   quickenrich_api_key: string;
+  job_titles: string[];
+  max_contacts: number;
 }
 
 export interface ExtractResponse {

@@ -35,6 +35,8 @@ class ExtractRequest(BaseModel):
     options: ExtractionOptions
     serper_api_key: str = ""
     quickenrich_api_key: str = ""
+    job_titles: list[str] = []
+    max_contacts: int = 3
 
 
 @router.post("/extract")
@@ -107,6 +109,8 @@ async def submit_extraction(
         "options": opts.model_dump(),
         "serper_api_key": body.serper_api_key,
         "quickenrich_api_key": body.quickenrich_api_key,
+        "job_titles": body.job_titles,
+        "max_contacts": body.max_contacts,
     }
 
     job = Job(

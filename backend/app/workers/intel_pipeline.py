@@ -329,6 +329,8 @@ async def _phase_enrich_worker(
     options = config.get("options", {})
     enrich_people = options.get("company_people", False)
     quickenrich_api_key = config.get("quickenrich_api_key") or None
+    job_titles: list[str] = config.get("job_titles", [])
+    max_contacts: int = int(config.get("max_contacts", 3))
 
     try:
         async with AsyncSessionLocal() as db:
@@ -344,7 +346,7 @@ async def _phase_enrich_worker(
 
                 result_ids: list[uuid.UUID] = msg
 
-                if not enrich_people or not quickenrich_api_key:
+                if not enrich_people or not quickenrich_api_key or not job_titles:
                     total_enriched += len(result_ids)
                     progress["enrich"] = total_enriched
                     continue
@@ -360,12 +362,10 @@ async def _phase_enrich_worker(
                         domains_with_rows.setdefault(r.normalized_domain, []).append(r.row_index)
 
                 if domains_with_rows:
-                    job_titles = ["CEO", "Founder", "Owner", "President", "Managing Director"]
-
                     contacts_by_domain = await batch_enrich(
                         domains_with_rows,
                         job_titles=job_titles,
-                        max_contacts=5,
+                        max_contacts=max_contacts,
                         api_key=quickenrich_api_key,
                     )
 
