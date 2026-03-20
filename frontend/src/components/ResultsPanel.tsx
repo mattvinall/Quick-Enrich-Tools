@@ -21,12 +21,26 @@ interface ResultRow {
   confidence?: number;
   status: string;
   contacts?: { title: string; first_name: string; last_name: string; email: string; phone: string; linkedin_url: string }[];
+  extracted_data?: {
+    industry?: string;
+    niche?: string;
+    description?: string;
+    address?: string;
+    phone?: string;
+    general_emails?: string[];
+    target_market?: string;
+    case_studies?: string[];
+    website_contacts?: { name: string; title: string }[];
+  };
   // contact enrichment fields
   contact_name?: string;
   contact_title?: string;
   contact_email?: string;
   contact_phone?: string;
   contact_linkedin?: string;
+  // intel display fields
+  industry?: string;
+  niche?: string;
 }
 
 interface PreviewResponse {
@@ -50,8 +64,8 @@ type SortDir = 'asc' | 'desc';
 function getStatusBadgeVariant(
   status: string,
 ): 'success' | 'destructive' | 'secondary' | 'outline' {
-  if (['normalized', 'enriched', 'found'].includes(status)) return 'success';
-  if (['not_found', 'blocked', 'failed'].includes(status)) return 'destructive';
+  if (['normalized', 'enriched', 'found', 'extracted', 'crawled'].includes(status)) return 'success';
+  if (['not_found', 'blocked', 'failed', 'scrape_failed'].includes(status)) return 'destructive';
   if (status === 'pending' || status === 'processing') return 'secondary';
   return 'outline';
 }
@@ -114,9 +128,12 @@ export default function ResultsPanel({
   const downloadUrl = downloadUrlOverride ?? getDownloadUrl(jobId, token);
 
   // Determine whether enrichment columns are present
-  // Count actual rows with contact data (not just the prop)
   const actualEnrichedCount = rows.filter((r) => r.contact_name).length;
   const hasEnrichment = enrichedCount > 0 || actualEnrichedCount > 0;
+
+  // Detect P3 mode: rows have no location data but may have intel data
+  const hasLocationData = rows.some((r) => r.location);
+  const hasIntelData = rows.some((r) => r.industry);
 
   useEffect(() => {
     async function fetchRows() {
@@ -129,6 +146,7 @@ export default function ResultsPanel({
         // Flatten contacts array into display fields
         const mapped = (data.rows ?? []).map((row) => {
           const firstContact = row.contacts?.[0];
+          const ed = row.extracted_data;
           return {
             ...row,
             contact_name: firstContact
@@ -138,6 +156,8 @@ export default function ResultsPanel({
             contact_email: firstContact?.email || undefined,
             contact_phone: firstContact?.phone || undefined,
             contact_linkedin: firstContact?.linkedin_url || undefined,
+            industry: ed?.industry || undefined,
+            niche: ed?.niche || undefined,
           };
         });
         setRows(mapped);
@@ -163,9 +183,9 @@ export default function ResultsPanel({
     let result = rows;
 
     if (filterTab === 'found') {
-      result = result.filter((r) => ['normalized', 'enriched', 'found'].includes(r.status));
+      result = result.filter((r) => ['normalized', 'enriched', 'found', 'extracted', 'crawled'].includes(r.status));
     } else if (filterTab === 'not_found') {
-      result = result.filter((r) => ['not_found', 'blocked', 'failed'].includes(r.status));
+      result = result.filter((r) => ['not_found', 'blocked', 'failed', 'scrape_failed'].includes(r.status));
     }
 
     if (search.trim()) {
@@ -373,11 +393,17 @@ export default function ResultsPanel({
                   <tr>
                     {(
                       [
-                        { key: 'company_name', label: 'Company' },
-                        { key: 'location', label: 'Location' },
+                        { key: 'company_name', label: hasLocationData ? 'Company' : 'Input' },
+                        ...(hasLocationData ? [{ key: 'location', label: 'Location' }] : []),
                         { key: 'website', label: 'Website' },
-                        { key: 'confidence', label: 'Confidence' },
+                        ...(hasLocationData ? [{ key: 'confidence', label: 'Confidence' }] : []),
                         { key: 'status', label: 'Status' },
+                        ...(hasIntelData
+                          ? [
+                              { key: 'industry', label: 'Industry' },
+                              { key: 'niche', label: 'Niche' },
+                            ]
+                          : []),
                         ...(hasEnrichment
                           ? [
                               { key: 'contact_name', label: 'Contact' },
@@ -424,9 +450,11 @@ export default function ResultsPanel({
                           <td className="px-4 py-3 font-medium text-text-primary max-w-[180px] truncate">
                             {row.company_name}
                           </td>
-                          <td className="px-4 py-3 text-text-secondary max-w-[140px] truncate">
-                            {row.location ?? '—'}
-                          </td>
+                          {hasLocationData && (
+                            <td className="px-4 py-3 text-text-secondary max-w-[140px] truncate">
+                              {row.location ?? '—'}
+                            </td>
+                          )}
                           <td className="px-4 py-3 max-w-[200px]">
                             {(row.domain || row.website) ? (
                               <a
@@ -442,14 +470,26 @@ export default function ResultsPanel({
                               <span className="text-text-secondary">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3">
-                            <ConfidenceBar value={row.confidence} />
-                          </td>
+                          {hasLocationData && (
+                            <td className="px-4 py-3">
+                              <ConfidenceBar value={row.confidence} />
+                            </td>
+                          )}
                           <td className="px-4 py-3">
                             <Badge variant={getStatusBadgeVariant(row.status)}>
                               {formatStatus(row.status)}
                             </Badge>
                           </td>
+                          {hasIntelData && (
+                            <>
+                              <td className="px-4 py-3 text-text-secondary max-w-[140px] truncate">
+                                {row.industry ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 text-text-secondary max-w-[140px] truncate">
+                                {row.niche ?? '—'}
+                              </td>
+                            </>
+                          )}
                           {hasEnrichment && (
                             <>
                               <td className="px-4 py-3 text-text-primary max-w-[140px] truncate">
