@@ -258,15 +258,11 @@ async def _phase_extract_worker(
                 batch_results = list(result.scalars().all())
 
                 if needs_llm:
+                    # Build extraction items grouped by unique domain
                     items: list[dict] = []
                     domain_to_results: dict[str, list[JobResult]] = {}
 
-                    logger.info("Extract phase: %d results, scraped_data has %d domains: %s",
-                        len(batch_results), len(scraped_data), list(scraped_data.keys())[:5])
-
                     for r in batch_results:
-                        logger.info("  row %d: raw_domain=%s, in_scraped=%s",
-                            r.row_index, r.raw_domain, r.raw_domain in scraped_data if r.raw_domain else False)
                         if r.raw_domain and r.raw_domain in scraped_data:
                             if r.raw_domain not in domain_to_results:
                                 domain_to_results[r.raw_domain] = []
@@ -277,18 +273,29 @@ async def _phase_extract_worker(
                                 })
                             domain_to_results[r.raw_domain].append(r)
 
-                    if items:
-                        intel_by_domain = await batch_extract_intel(items)
+                    # Process LLM extraction in sub-batches of 10 to avoid DB timeout
+                    _SUB_BATCH = 10
+                    for sub_start in range(0, len(items), _SUB_BATCH):
+                        sub_items = items[sub_start:sub_start + _SUB_BATCH]
+                        logger.info("Extract sub-batch %d-%d of %d domains",
+                            sub_start, sub_start + len(sub_items), len(items))
 
-                        for domain, job_results in domain_to_results.items():
+                        intel_by_domain = await batch_extract_intel(sub_items)
+
+                        for item in sub_items:
+                            domain = item["domain"]
                             intel = intel_by_domain.get(domain, {})
-                            for r in job_results:
+                            for r in domain_to_results.get(domain, []):
                                 existing = r.extracted_data or {}
                                 existing.update(intel)
                                 r.extracted_data = existing
                                 r.normalized_domain = r.raw_domain
                                 r.status = "extracted"
 
+                        # Commit after each sub-batch to keep DB connection alive
+                        await db.commit()
+
+                    # Mark remaining rows
                     for r in batch_results:
                         if r.status not in ("extracted", "not_found"):
                             if r.raw_domain:
