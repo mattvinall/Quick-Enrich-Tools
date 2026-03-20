@@ -385,7 +385,8 @@ async def _phase_enrich_worker(
                             job_result = result_by_row.get(row_index)
                             if job_result is not None:
                                 job_result.contacts = contacts
-                                job_result.status = "enriched"
+                                if contacts:
+                                    job_result.status = "enriched"
 
                     await db.commit()
 
