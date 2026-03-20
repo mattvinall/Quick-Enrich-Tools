@@ -7,8 +7,6 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Annotated
 
-from arq import create_pool
-from arq.connections import RedisSettings
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -121,13 +119,10 @@ async def submit_extraction(
     db.add_all(job_results)
     await db.flush()
 
-    from app.workers.pipeline import _parse_redis_settings
-    redis_settings = _parse_redis_settings(settings.redis_url)
-    redis_pool = await create_pool(redis_settings)
-    try:
-        await redis_pool.enqueue_job("run_intel_pipeline", str(job.id), _expires=86400)
-    finally:
-        await redis_pool.aclose()
+    # Run pipeline as background task (bypass ARQ — Upstash incompatibility)
+    import asyncio
+    from app.workers.intel_pipeline import run_intel_pipeline
+    asyncio.create_task(run_intel_pipeline({}, str(job.id)))
 
     new_token = create_token(email, str(job.id))
     return {
