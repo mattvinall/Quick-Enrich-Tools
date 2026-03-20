@@ -136,7 +136,8 @@ async def upload_csv(
     await db.flush()
 
     # --- dispatch to ARQ worker ---
-    redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    from app.workers.pipeline import _parse_redis_settings
+    redis_settings = _parse_redis_settings(settings.redis_url)
     redis_pool = await create_pool(redis_settings)
     try:
         await redis_pool.enqueue_job("run_pipeline", str(job.id))
