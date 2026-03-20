@@ -33,8 +33,8 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 type BadgeVariant = 'success' | 'destructive' | 'warning' | 'secondary';
 
 function statusBadgeVariant(status: string): BadgeVariant {
-  if (['found', 'normalized', 'enriched'].includes(status)) return 'success';
-  if (['not_found'].includes(status)) return 'destructive';
+  if (['found', 'normalized', 'enriched', 'extracted', 'crawled'].includes(status)) return 'success';
+  if (['not_found', 'scrape_failed'].includes(status)) return 'destructive';
   if (['blocked'].includes(status)) return 'warning';
   return 'secondary';
 }
@@ -49,8 +49,12 @@ function statusLabel(status: string): string {
     pending: 'Pending',
     searched: 'Searched',
     verified: 'Verified',
+    resolved: 'Resolved',
+    crawled: 'Crawled',
+    extracted: 'Extracted',
+    scrape_failed: 'Scrape Failed',
   };
-  return map[status] ?? status;
+  return map[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 // Loading dots animation for empty state
@@ -144,6 +148,9 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
   newRows.forEach((r) => seenIndicesRef.current.add(r.index));
   const hasNewRows = newRows.length > 0;
 
+  // Hide location column if no rows have location data (P3 doesn't use location)
+  const hasLocationData = rows.some((r) => r.location);
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="py-4 px-5 border-b border-border">
@@ -194,11 +201,13 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
                     #
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide">
-                    Company
+                    {hasLocationData ? 'Company' : 'Input'}
                   </th>
+                  {hasLocationData && (
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide hidden sm:table-cell">
                     Location
                   </th>
+                  )}
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide hidden md:table-cell">
                     Website
                   </th>
@@ -232,11 +241,13 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
                           {row.company_name}
                         </span>
                       </td>
+                      {hasLocationData && (
                       <td className="px-4 py-2.5 text-text-secondary truncate max-w-[120px] hidden sm:table-cell">
                         {row.location ?? (
                           <span className="text-gray-300">—</span>
                         )}
                       </td>
+                      )}
                       <td className="px-4 py-2.5 max-w-[200px] hidden md:table-cell">
                         {(row.domain || row.website) ? (
                           <a
