@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Settings, X } from "lucide-react";
+import { Settings, X, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,8 @@ interface ExtractionSettingsProps {
   onTargetMarketChange: (v: boolean) => void;
   onCompanyPeopleChange: (v: boolean) => void;
   onHomepageRawTextChange: (v: boolean) => void;
+  quickenrichApiKey: string;
+  onQuickenrichApiKeyChange: (v: string) => void;
   jobTitles: string[];
   onJobTitlesChange: (titles: string[]) => void;
   maxContacts: number;
@@ -65,6 +67,8 @@ export default function ExtractionSettings({
   onTargetMarketChange,
   onCompanyPeopleChange,
   onHomepageRawTextChange,
+  quickenrichApiKey,
+  onQuickenrichApiKeyChange,
   jobTitles,
   onJobTitlesChange,
   maxContacts,
@@ -145,6 +149,33 @@ export default function ExtractionSettings({
 
       {companyPeople && (
         <div className="space-y-4 pt-2 border-t border-border">
+          {/* QuickEnrich API Key */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-text-primary">
+                QuickEnrich.io API Key
+              </label>
+              <a
+                href="https://app.quickenrich.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
+              >
+                Get Key <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <input
+              type="text"
+              value={quickenrichApiKey}
+              onChange={(e) => onQuickenrichApiKeyChange(e.target.value)}
+              placeholder="qe_..."
+              className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-xs text-primary">
+              Get 50,000 free QuickEnrich.io credits
+            </p>
+          </div>
+
           {/* Job Titles */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-text-primary">

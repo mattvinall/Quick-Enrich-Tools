@@ -117,6 +117,9 @@ export default function CompanyIntelPage() {
   const [companyPeople, setCompanyPeople] = useState(true);
   const [homepageRawText, setHomepageRawText] = useState(false);
 
+  // QuickEnrich API key
+  const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
+
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
   const [maxContacts, setMaxContacts] = useState(3);
@@ -196,6 +199,7 @@ export default function CompanyIntelPage() {
             company_people: companyPeople,
             homepage_raw_text: homepageRawText,
           },
+          quickenrich_api_key: quickenrichApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -379,6 +383,8 @@ export default function CompanyIntelPage() {
                     onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={setCompanyPeople}
                     onHomepageRawTextChange={setHomepageRawText}
+                    quickenrichApiKey={quickenrichApiKey}
+                    onQuickenrichApiKeyChange={setQuickenrichApiKey}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}

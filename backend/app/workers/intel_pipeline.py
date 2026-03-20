@@ -330,6 +330,7 @@ async def _phase_enrich_worker(
     """Phase 4: Enrich contacts via QuickEnrich API (optional)."""
     options = config.get("options", {})
     enrich_people = options.get("company_people", False)
+    quickenrich_api_key = config.get("quickenrich_api_key") or None
     job_titles: list[str] = config.get("job_titles", [])
     max_contacts: int = int(config.get("max_contacts", 3))
 
@@ -347,7 +348,7 @@ async def _phase_enrich_worker(
 
                 result_ids: list[uuid.UUID] = msg
 
-                if not enrich_people or not job_titles:
+                if not enrich_people or not job_titles or not quickenrich_api_key:
                     total_enriched += len(result_ids)
                     progress["enrich"] = total_enriched
                     continue
@@ -367,6 +368,7 @@ async def _phase_enrich_worker(
                         domains_with_rows,
                         job_titles=job_titles,
                         max_contacts=max_contacts,
+                        api_key=quickenrich_api_key,
                     )
 
                     result_by_row = {r.row_index: r for r in batch_results}
