@@ -18,9 +18,8 @@ from app.database import AsyncSessionLocal
 from app.models import EmailCapture, Job, JobResult
 from app.services.email_service import send_results_email
 from app.services.enrichment import batch_enrich
-from app.services.scraper import batch_crawl
+from app.services.scraper import batch_crawl, batch_search_companies
 from app.services.intel_extractor import batch_extract_intel
-from app.services.serper import batch_search
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +80,8 @@ async def _phase_resolve_worker(
     error_event: asyncio.Event,
     progress: dict[str, int],
 ) -> None:
-    """Phase 1: Resolve company names to domains via Serper; normalize URL inputs."""
+    """Phase 1: Resolve company names to domains via Spider.cloud search; normalize URL inputs."""
     batch_size = settings.pipeline_batch_size
-    serper_api_key = config.get("serper_api_key") or None
 
     try:
         async with AsyncSessionLocal() as db:
@@ -119,22 +117,19 @@ async def _phase_resolve_worker(
                         })
 
                 if name_rows:
-                    search_outcomes = await batch_search(
-                        name_rows, api_key=serper_api_key
-                    )
-                    outcome_by_idx = {int(o["row_index"]): o for o in search_outcomes}
+                    search_outcomes = await batch_search_companies(name_rows)
+                    outcome_by_row = {int(o["row_index"]): o for o in search_outcomes}
 
                     result_by_row = {r.row_index: r for r in batch_results}
-                    for i, row in enumerate(name_rows):
+                    for row in name_rows:
                         original_idx = row["row_index"]
                         job_result = result_by_row.get(original_idx)
                         if job_result is None:
                             continue
-                        outcome = outcome_by_idx.get(i)
+                        outcome = outcome_by_row.get(original_idx)
                         if outcome:
-                            job_result.search_results = outcome.get("search_results")
-                            candidate = outcome.get("candidate_domain", "")
-                            job_result.raw_domain = str(candidate) if candidate else None
+                            domain = outcome.get("domain", "")
+                            job_result.raw_domain = domain if domain else None
                         job_result.status = "resolved"
 
                 await db.commit()
@@ -333,7 +328,6 @@ async def _phase_enrich_worker(
     """Phase 4: Enrich contacts via QuickEnrich API (optional)."""
     options = config.get("options", {})
     enrich_people = options.get("company_people", False)
-    quickenrich_api_key = config.get("quickenrich_api_key") or None
     job_titles: list[str] = config.get("job_titles", [])
     max_contacts: int = int(config.get("max_contacts", 3))
 
@@ -351,7 +345,7 @@ async def _phase_enrich_worker(
 
                 result_ids: list[uuid.UUID] = msg
 
-                if not enrich_people or not quickenrich_api_key or not job_titles:
+                if not enrich_people or not job_titles:
                     total_enriched += len(result_ids)
                     progress["enrich"] = total_enriched
                     continue
@@ -371,7 +365,6 @@ async def _phase_enrich_worker(
                         domains_with_rows,
                         job_titles=job_titles,
                         max_contacts=max_contacts,
-                        api_key=quickenrich_api_key,
                     )
 
                     result_by_row = {r.row_index: r for r in batch_results}

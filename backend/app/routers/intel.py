@@ -33,8 +33,6 @@ class ExtractionOptions(BaseModel):
 class ExtractRequest(BaseModel):
     lines: list[str]
     options: ExtractionOptions
-    serper_api_key: str = ""
-    quickenrich_api_key: str = ""
     job_titles: list[str] = []
     max_contacts: int = 3
 
@@ -90,25 +88,11 @@ async def submit_extraction(
             "input_type": input_type,
         })
 
-    if has_names and not body.serper_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Serper API key is required when company names (not URLs) are included.",
-        )
-
-    if opts.company_people and not body.quickenrich_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="QuickEnrich API key is required when Company's People option is selected.",
-        )
-
     email = str(token_payload["sub"])
     email_capture_id = str(token_payload.get("job_id", ""))
 
     job_config = {
         "options": opts.model_dump(),
-        "serper_api_key": body.serper_api_key,
-        "quickenrich_api_key": body.quickenrich_api_key,
         "job_titles": body.job_titles,
         "max_contacts": body.max_contacts,
     }

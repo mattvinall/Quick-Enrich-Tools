@@ -117,10 +117,6 @@ export default function CompanyIntelPage() {
   const [companyPeople, setCompanyPeople] = useState(true);
   const [homepageRawText, setHomepageRawText] = useState(false);
 
-  // API keys
-  const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
-  const [serperApiKey, setSerperApiKey] = useState('');
-
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
   const [maxContacts, setMaxContacts] = useState(3);
@@ -182,9 +178,7 @@ export default function CompanyIntelPage() {
   // Validation
   const hasData = lineStats.total > 0;
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const hasRequiredKeys = (!companyPeople || quickenrichApiKey.trim()) &&
-    (lineStats.names === 0 || serperApiKey.trim());
-  const canSubmit = hasData && hasOptions && hasRequiredKeys;
+  const canSubmit = hasData && hasOptions;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
@@ -202,8 +196,6 @@ export default function CompanyIntelPage() {
             company_people: companyPeople,
             homepage_raw_text: homepageRawText,
           },
-          serper_api_key: serperApiKey,
-          quickenrich_api_key: quickenrichApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -387,11 +379,6 @@ export default function CompanyIntelPage() {
                     onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={setCompanyPeople}
                     onHomepageRawTextChange={setHomepageRawText}
-                    quickenrichApiKey={quickenrichApiKey}
-                    onQuickenrichApiKeyChange={setQuickenrichApiKey}
-                    serperApiKey={serperApiKey}
-                    onSerperApiKeyChange={setSerperApiKey}
-                    showSerperKey={lineStats.names > 0}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}

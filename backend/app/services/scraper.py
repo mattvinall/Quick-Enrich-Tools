@@ -104,6 +104,109 @@ def _is_safe_url(url: str) -> bool:
         return False
 
 
+async def search_company_website(
+    client: httpx.AsyncClient,
+    company_name: str,
+) -> str:
+    """Search for a company's website using Spider.cloud search API.
+
+    Returns the candidate domain string, or empty string if not found.
+    """
+    cache_key = make_cache_key("spider_search", company_name.lower())
+    cached = await cache_get(cache_key)
+    if cached is not None and isinstance(cached, dict):
+        logger.info("SPIDER SEARCH CACHE HIT: %s", company_name)
+        return cached.get("domain", "")
+
+    query = f'"{company_name}" official website'
+    logger.info("SPIDER SEARCH: %s", query)
+
+    response = await retry_async(
+        lambda: client.post(
+            "https://api.spider.cloud/search",
+            headers={
+                "Authorization": f"Bearer {settings.spider_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"search": query, "search_limit": 3},
+            timeout=15.0,
+        ),
+        max_retries=2,
+        base_delay=1.0,
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    # Spider search returns a list of results with url/title/description
+    domain = ""
+    if isinstance(data, list):
+        for result in data:
+            url = result.get("url", "")
+            if url:
+                parsed = urlparse(url)
+                candidate = parsed.netloc.removeprefix("www.")
+                # Skip social/directory sites
+                if candidate and not any(
+                    candidate.endswith(blocked)
+                    for blocked in ("facebook.com", "linkedin.com", "twitter.com", "x.com",
+                                    "instagram.com", "youtube.com", "yelp.com", "glassdoor.com",
+                                    "crunchbase.com", "wikipedia.org", "bbb.org", "indeed.com")
+                ):
+                    domain = candidate
+                    break
+
+    await cache_set(cache_key, {"domain": domain, "query": query}, settings.cache_ttl_days)
+    return domain
+
+
+async def batch_search_companies(
+    company_names: list[dict],
+    concurrency: int | None = None,
+) -> list[dict]:
+    """Search for websites for a list of company names using Spider.cloud.
+
+    Each item: {"row_index": int, "company_name": str}
+    Returns: [{"row_index": int, "domain": str}]
+    """
+    limit = concurrency if concurrency is not None else settings.scrape_concurrency
+    semaphore = asyncio.Semaphore(limit)
+
+    # Deduplicate by company name
+    groups: dict[str, list[int]] = {}
+    for item in company_names:
+        name = item["company_name"].lower()
+        groups.setdefault(name, []).append(item["row_index"])
+
+    async with httpx.AsyncClient() as client:
+
+        async def _search_one(name: str) -> tuple[str, str]:
+            async with semaphore:
+                try:
+                    domain = await search_company_website(client, name)
+                    return name, domain
+                except Exception as exc:
+                    logger.warning("Spider search failed for %s: %s", name, exc)
+                    return name, ""
+
+        tasks = [_search_one(name) for name in groups]
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+
+    name_to_domain: dict[str, str] = {}
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            continue
+        name, domain = outcome
+        name_to_domain[name] = domain
+
+    results = []
+    for name, row_indices in groups.items():
+        domain = name_to_domain.get(name, "")
+        for idx in row_indices:
+            results.append({"row_index": idx, "domain": domain})
+
+    return results
+
+
 async def scrape_page(
     client: httpx.AsyncClient,
     url: str,
