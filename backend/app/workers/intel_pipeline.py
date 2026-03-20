@@ -264,7 +264,12 @@ async def _phase_extract_worker(
                     items: list[dict] = []
                     domain_to_results: dict[str, list[JobResult]] = {}
 
+                    logger.info("Extract phase: %d results, scraped_data has %d domains: %s",
+                        len(batch_results), len(scraped_data), list(scraped_data.keys())[:5])
+
                     for r in batch_results:
+                        logger.info("  row %d: raw_domain=%s, in_scraped=%s",
+                            r.row_index, r.raw_domain, r.raw_domain in scraped_data if r.raw_domain else False)
                         if r.raw_domain and r.raw_domain in scraped_data:
                             if r.raw_domain not in domain_to_results:
                                 domain_to_results[r.raw_domain] = []
