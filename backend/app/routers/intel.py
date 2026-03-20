@@ -124,7 +124,7 @@ async def submit_extraction(
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     redis_pool = await create_pool(redis_settings)
     try:
-        await redis_pool.enqueue_job("run_intel_pipeline", str(job.id))
+        await redis_pool.enqueue_job("run_intel_pipeline", str(job.id), _expires=86400)
     finally:
         await redis_pool.aclose()
 
