@@ -47,6 +47,7 @@ class PreviewRow(BaseModel):
     confidence: str | None
     status: str
     contacts: list[dict[str, str | None]] | None
+    extracted_data: dict[str, object] | None = None
 
 
 class PreviewResponse(BaseModel):
@@ -77,7 +78,8 @@ def _assert_token_owns_job(payload: dict[str, str | int], job: Job) -> None:
 def _build_preview_row(result: JobResult) -> PreviewRow:
     input_data: dict[str, str] = result.input_data or {}
 
-    company_name: str | None = input_data.get("company_name") or input_data.get("Company Name")
+    # P3 stores {input: "apple.com", input_type: "url"}, P2 stores {company_name: "...", location: "..."}
+    company_name: str | None = input_data.get("company_name") or input_data.get("Company Name") or input_data.get("input")
     location: str | None = input_data.get("location") or input_data.get("Location")
 
     domain: str | None = result.normalized_domain or result.verified_domain or None
@@ -90,6 +92,10 @@ def _build_preview_row(result: JobResult) -> PreviewRow:
     if isinstance(result.contacts, list):
         contacts = result.contacts
 
+    extracted_data: dict[str, object] | None = None
+    if isinstance(result.extracted_data, dict) and result.extracted_data:
+        extracted_data = result.extracted_data
+
     return PreviewRow(
         row_index=result.row_index,
         company_name=company_name,
@@ -98,6 +104,7 @@ def _build_preview_row(result: JobResult) -> PreviewRow:
         confidence=confidence,
         status=result.status,
         contacts=contacts,
+        extracted_data=extracted_data,
     )
 
 
