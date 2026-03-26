@@ -149,3 +149,58 @@ export function submitExtraction(
 export function getIntelDownloadUrl(jobId: string, token: string): string {
   return `${API_URL}/api/v1/intel/download/${jobId}?token=${encodeURIComponent(token)}`;
 }
+
+// ── G2 Intel ────────────────────────────────────────────────────────
+
+export interface G2Category {
+  slug: string;
+  name: string;
+  parent: string;
+  estimated_products: number;
+}
+
+export interface G2CategoriesResponse {
+  categories: G2Category[];
+  parents: string[];
+  total: number;
+}
+
+export function getG2Categories(
+  search?: string,
+  parent?: string,
+): Promise<G2CategoriesResponse> {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (parent) params.set('parent', parent);
+  const qs = params.toString();
+  return fetchAPI<G2CategoriesResponse>(
+    `${API_URL}/api/v1/g2/categories${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export interface G2ExtractRequest {
+  categories: string[];
+  max_per_category: number;
+  options: ExtractionOptions;
+  quickenrich_api_key: string;
+  job_titles: string[];
+  max_contacts: number;
+}
+
+export function submitG2Extraction(
+  body: G2ExtractRequest,
+  token: string,
+): Promise<ExtractResponse> {
+  return fetchAPI<ExtractResponse>(`${API_URL}/api/v1/g2/extract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export function getG2DownloadUrl(jobId: string, token: string): string {
+  return `${API_URL}/api/v1/g2/download/${jobId}?token=${encodeURIComponent(token)}`;
+}

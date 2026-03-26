@@ -37,6 +37,17 @@ export const tools: ToolConfig[] = [
     optionalColumns: [],
     columnPatterns: {},
   },
+  {
+    slug: "g2-intel",
+    name: "G2 Category to Company Intel",
+    description:
+      "Select G2 software categories to discover companies and extract business intelligence, contacts, and more.",
+    isActive: true,
+    backendUrl: API_BASE_URL,
+    requiredColumns: [],
+    optionalColumns: [],
+    columnPatterns: {},
+  },
 ];
 
 export function getToolBySlug(slug: string): ToolConfig | undefined {

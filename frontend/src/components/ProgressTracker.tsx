@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
-import { Globe, Cpu } from 'lucide-react';
+import { Globe, Cpu, Layers } from 'lucide-react';
 
 const DEFAULT_PHASES = ['Search', 'Verify', 'Normalize', 'Enrich', 'Deliver'] as const;
 
@@ -20,6 +20,7 @@ const ALL_PHASE_ICONS: Record<string, React.ElementType> = {
   Resolve: Search,
   Crawl: Globe,
   Extract: Cpu,
+  Discover: Layers,
 };
 
 const ALL_PHASE_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ const ALL_PHASE_LABELS: Record<string, string> = {
   Resolve: 'Resolving',
   Crawl: 'Crawling',
   Extract: 'Extracting',
+  Discover: 'Discovering',
 };
 
 interface PhaseEntry {
@@ -48,9 +50,15 @@ interface ProgressTrackerProps {
   phases?: readonly string[];
 }
 
+// Map backend phase names to display phase names
+const PHASE_ALIASES: Record<string, string> = {
+  g2_scrape: 'discover',
+};
+
 function findPhaseIndex(phases: readonly string[], phase: string | null): number {
   if (!phase) return -1;
-  return phases.findIndex((p) => p.toLowerCase() === phase.toLowerCase());
+  const normalized = PHASE_ALIASES[phase.toLowerCase()] ?? phase.toLowerCase();
+  return phases.findIndex((p) => p.toLowerCase() === normalized);
 }
 
 // Animated counter that smoothly increments to the target value

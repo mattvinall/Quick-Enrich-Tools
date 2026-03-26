@@ -33,7 +33,7 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 type BadgeVariant = 'success' | 'destructive' | 'warning' | 'secondary';
 
 function statusBadgeVariant(status: string): BadgeVariant {
-  if (['found', 'normalized', 'enriched', 'extracted', 'crawled'].includes(status)) return 'success';
+  if (['found', 'normalized', 'enriched', 'extracted', 'crawled', 'g2_scraped'].includes(status)) return 'success';
   if (['not_found', 'scrape_failed'].includes(status)) return 'destructive';
   if (['blocked'].includes(status)) return 'warning';
   return 'secondary';
@@ -53,6 +53,7 @@ function statusLabel(status: string): string {
     crawled: 'Crawled',
     extracted: 'Extracted',
     scrape_failed: 'Scrape Failed',
+    g2_scraped: 'G2 Scraped',
   };
   return map[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
 }
