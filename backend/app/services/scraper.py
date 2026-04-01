@@ -1,7 +1,7 @@
 """Web scraper — crawl company websites and extract visible text.
 
-Primary: Spider.cloud API (fast, handles anti-bot, JS rendering via smart mode).
-Fallback: Direct httpx if SPIDER_API_KEY is not set (free but lower success rate).
+Primary: scrape.do API (residential proxies, anti-bot bypass, JS rendering).
+Fallback: Direct httpx if SCRAPE_DO_API_KEY is not set (free but lower success rate).
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import logging
 import random
 import re
 import socket
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -44,7 +44,7 @@ _OPTION_PRIORITIES = {
 }
 
 
-# Rotating user agents — inspired by dmand-v2 browser pool
+# Rotating user agents — for direct httpx fallback
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -53,8 +53,7 @@ _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
 ]
 
-# Private/internal IP ranges to block (SSRF protection — from dmand-v2)
-_BLOCKED_IP_PREFIXES = ("127.", "10.", "0.", "169.254.", "192.168.")
+# Private/internal IP ranges to block (SSRF protection)
 _BLOCKED_HOSTNAMES = {"localhost", "metadata.google.internal", "metadata.internal"}
 
 
@@ -104,109 +103,6 @@ def _is_safe_url(url: str) -> bool:
         return False
 
 
-async def search_company_website(
-    client: httpx.AsyncClient,
-    company_name: str,
-) -> str:
-    """Search for a company's website using Spider.cloud search API.
-
-    Returns the candidate domain string, or empty string if not found.
-    """
-    cache_key = make_cache_key("spider_search", company_name.lower())
-    cached = await cache_get(cache_key)
-    if cached is not None and isinstance(cached, dict):
-        logger.info("SPIDER SEARCH CACHE HIT: %s", company_name)
-        return cached.get("domain", "")
-
-    query = f'"{company_name}" official website'
-    logger.info("SPIDER SEARCH: %s", query)
-
-    response = await retry_async(
-        lambda: client.post(
-            "https://api.spider.cloud/search",
-            headers={
-                "Authorization": f"Bearer {settings.spider_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={"search": query, "search_limit": 3},
-            timeout=15.0,
-        ),
-        max_retries=2,
-        base_delay=1.0,
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    # Spider search returns a list of results with url/title/description
-    domain = ""
-    if isinstance(data, list):
-        for result in data:
-            url = result.get("url", "")
-            if url:
-                parsed = urlparse(url)
-                candidate = parsed.netloc.removeprefix("www.")
-                # Skip social/directory sites
-                if candidate and not any(
-                    candidate.endswith(blocked)
-                    for blocked in ("facebook.com", "linkedin.com", "twitter.com", "x.com",
-                                    "instagram.com", "youtube.com", "yelp.com", "glassdoor.com",
-                                    "crunchbase.com", "wikipedia.org", "bbb.org", "indeed.com")
-                ):
-                    domain = candidate
-                    break
-
-    await cache_set(cache_key, {"domain": domain, "query": query}, settings.cache_ttl_days)
-    return domain
-
-
-async def batch_search_companies(
-    company_names: list[dict],
-    concurrency: int | None = None,
-) -> list[dict]:
-    """Search for websites for a list of company names using Spider.cloud.
-
-    Each item: {"row_index": int, "company_name": str}
-    Returns: [{"row_index": int, "domain": str}]
-    """
-    limit = concurrency if concurrency is not None else settings.scrape_concurrency
-    semaphore = asyncio.Semaphore(limit)
-
-    # Deduplicate by company name
-    groups: dict[str, list[int]] = {}
-    for item in company_names:
-        name = item["company_name"].lower()
-        groups.setdefault(name, []).append(item["row_index"])
-
-    async with httpx.AsyncClient() as client:
-
-        async def _search_one(name: str) -> tuple[str, str]:
-            async with semaphore:
-                try:
-                    domain = await search_company_website(client, name)
-                    return name, domain
-                except Exception as exc:
-                    logger.warning("Spider search failed for %s: %s", name, exc)
-                    return name, ""
-
-        tasks = [_search_one(name) for name in groups]
-        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-
-    name_to_domain: dict[str, str] = {}
-    for outcome in outcomes:
-        if isinstance(outcome, BaseException):
-            continue
-        name, domain = outcome
-        name_to_domain[name] = domain
-
-    results = []
-    for name, row_indices in groups.items():
-        domain = name_to_domain.get(name, "")
-        for idx in row_indices:
-            results.append({"row_index": idx, "domain": domain})
-
-    return results
-
-
 async def scrape_page(
     client: httpx.AsyncClient,
     url: str,
@@ -214,35 +110,30 @@ async def scrape_page(
 ) -> str:
     """Scrape a single URL. Returns raw HTML string.
 
-    If SPIDER_API_KEY is configured, uses Spider.cloud API (recommended).
+    If SCRAPE_DO_API_KEY is configured, uses scrape.do API (recommended).
     Otherwise, fetches directly via httpx with a browser-like User-Agent.
     """
-    if settings.spider_api_key:
-        # Spider.cloud API — handles anti-bot, JS rendering via smart mode
+    if settings.scrape_do_api_key:
+        # scrape.do API — handles anti-bot, residential proxies, optional JS rendering
+        encoded_url = quote(url, safe="")
+        api_url = (
+            f"https://api.scrape.do/"
+            f"?token={settings.scrape_do_api_key}"
+            f"&url={encoded_url}"
+        )
+        if render:
+            api_url += "&render=true"
+
         response = await retry_async(
-            lambda: client.post(
-                "https://api.spider.cloud/crawl",
-                headers={
-                    "Authorization": f"Bearer {settings.spider_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "url": url,
-                    "limit": 1,
-                    "return_format": "html",
-                    "request": "smart",  # Auto-detects if JS rendering is needed
-                },
+            lambda: client.get(
+                api_url,
                 timeout=settings.scrape_timeout,
             ),
             max_retries=2,
             base_delay=1.0,
         )
         response.raise_for_status()
-        data = response.json()
-        # Spider returns a list of crawled pages
-        if isinstance(data, list) and data:
-            return data[0].get("content", "")
-        return ""
+        return response.text
 
     # SSRF check for direct fetches (user-provided URLs)
     if not _is_safe_url(url):
@@ -365,8 +256,8 @@ async def crawl_site(
         homepage_html = await scrape_page(client, homepage_url, render=False)
         homepage_text = extract_text_from_html(homepage_html)
 
-        # Fallback to render=true if content too short and Spider is available
-        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.spider_api_key:
+        # Retry with JS rendering if content too short and scrape.do is available
+        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
             try:
                 homepage_html = await scrape_page(client, homepage_url, render=True)
                 homepage_text = extract_text_from_html(homepage_html)

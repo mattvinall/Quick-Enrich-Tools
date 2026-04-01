@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     llm_batch_size: int = 20
     normalize_batch_size: int = 200
     enrich_batch_size: int = 50
-    spider_api_key: str = ""
+    scrape_do_api_key: str = ""
     scrape_concurrency: int = 30
     max_pages_per_site: int = 6
     scrape_timeout: int = 20
