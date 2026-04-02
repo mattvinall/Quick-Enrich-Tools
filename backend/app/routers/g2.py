@@ -147,7 +147,7 @@ async def submit_g2_extraction(
 # ── CSV Download ─────────────────────────────────────────────────────
 
 _BATCH_SIZE = 500
-_BASE_COLUMNS = ["g2_category", "g2_rating", "g2_review_count", "input", "website", "status"]
+_BASE_COLUMNS = ["g2_category", "g2_url", "g2_rating", "g2_review_count", "input", "website", "status"]
 _CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
 
 
@@ -156,13 +156,14 @@ def _extract_g2_row(result: JobResult, options: dict, max_contacts: int = 5) -> 
     extracted = result.extracted_data or {}
 
     g2_category = input_data.get("g2_category", "")
+    g2_url = input_data.get("g2_url", "")
     g2_rating = str(input_data.get("g2_rating") or "")
     g2_review_count = str(input_data.get("g2_review_count") or "")
     original_input = input_data.get("input", "")
     website = result.normalized_domain or result.raw_domain or ""
     row_status = result.status
 
-    base = [g2_category, g2_rating, g2_review_count, original_input, website, row_status]
+    base = [g2_category, g2_url, g2_rating, g2_review_count, original_input, website, row_status]
 
     intel_cells: list[str] = []
     if options.get("industry_description"):
