@@ -18,7 +18,7 @@ from app.database import AsyncSessionLocal
 from app.models import EmailCapture, Job, JobResult
 from app.services.email_service import send_results_email
 from app.services.enrichment import batch_enrich
-from app.services.scraper import batch_crawl
+from app.services.scraper import batch_crawl, extract_generic_emails
 from app.services.intel_extractor import batch_extract_intel
 from app.services.serper import batch_search
 
@@ -118,7 +118,8 @@ async def _phase_resolve_worker(
                         })
 
                 if name_rows:
-                    search_outcomes = await batch_search(name_rows)
+                    serper_api_key = config.get("serper_api_key") or None
+                    search_outcomes = await batch_search(name_rows, api_key=serper_api_key)
                     outcome_by_idx = {int(o["row_index"]): o for o in search_outcomes}
 
                     result_by_row = {r.row_index: r for r in batch_results}
@@ -196,13 +197,18 @@ async def _phase_crawl_worker(
                 for r in batch_results:
                     if r.raw_domain and r.raw_domain in scraped_data:
                         r.status = "crawled"
+                        pages = scraped_data.get(r.raw_domain, {})
+                        if not r.extracted_data:
+                            r.extracted_data = {}
                         if options.get("homepage_raw_text"):
-                            pages = scraped_data.get(r.raw_domain, {})
                             homepage_url = f"https://{r.raw_domain}"
                             homepage_text = pages.get(homepage_url, "")
-                            if not r.extracted_data:
-                                r.extracted_data = {}
                             r.extracted_data["homepage_raw_text"] = homepage_text
+                        # Extract generic emails via regex (free, no LLM needed)
+                        all_text = "\n".join(pages.values())
+                        generic_emails = extract_generic_emails(all_text)
+                        if generic_emails:
+                            r.extracted_data["general_emails"] = generic_emails
                     elif not r.raw_domain:
                         r.status = "not_found"
                     else:
@@ -294,6 +300,10 @@ async def _phase_extract_worker(
 
                         # Commit after each sub-batch to keep DB connection alive
                         await db.commit()
+
+                    # Free scraped text from memory now that LLM extraction is done
+                    for domain in domain_to_results:
+                        scraped_data.pop(domain, None)
 
                     # Mark remaining rows
                     for r in batch_results:
