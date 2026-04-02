@@ -54,6 +54,7 @@ interface ProgressTrackerProps {
 const PHASE_ALIASES: Record<string, string> = {
   g2_scrape: 'discover',
   maps_search: 'search',
+  funding_discover: 'discover',
 };
 
 function findPhaseIndex(phases: readonly string[], phase: string | null): number {
