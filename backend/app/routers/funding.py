@@ -52,9 +52,18 @@ class FundingExtractRequest(BaseModel):
 
 @router.get("/discover")
 async def discover_funding(
-    hours: int = Query(default=24, ge=1, le=72, description="Look back window in hours"),
+    hours: int = Query(default=24, description="Look back window: 24 or 48 hours"),
 ) -> dict:
-    """Discover companies funded in the last N hours. No auth required."""
+    """Discover companies funded in the last N hours.
+
+    Only accepts hours=24 or hours=48 to limit cache buckets and
+    prevent abuse of Serper/Gemini API calls via parameter variation.
+    """
+    if hours not in (24, 48):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="hours must be 24 or 48.",
+        )
     companies = await discover_funded_companies(hours)
     return {"companies": companies, "total": len(companies)}
 
@@ -106,7 +115,7 @@ async def submit_funding_extraction(
         config=job_config,
     )
     db.add(job)
-    await db.flush()
+    await db.commit()
 
     import asyncio
     from app.workers.funding_pipeline import run_funding_pipeline
@@ -215,8 +224,9 @@ async def _stream_funding_csv(job: Job, db: AsyncSession) -> AsyncGenerator[byte
 
     config = job.config or {}
     options = config.get("options", {})
+    max_contacts = int(config.get("max_contacts", 5))
 
-    headers = _build_funding_headers(options)
+    headers = _build_funding_headers(options, max_contacts)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -241,7 +251,7 @@ async def _stream_funding_csv(job: Job, db: AsyncSession) -> AsyncGenerator[byte
         buf = io.StringIO()
         writer = csv.writer(buf)
         for result in rows:
-            writer.writerow(_extract_funding_row(result, options))
+            writer.writerow(_extract_funding_row(result, options, max_contacts))
         yield buf.getvalue().encode("utf-8")
 
         if len(rows) < _BATCH_SIZE:

@@ -267,7 +267,7 @@ export interface FundingCompany {
 export interface FundingDiscoverResponse {
   companies: FundingCompany[];
   total: number;
-  cached_at: string;
+  cached_at?: string;
 }
 
 export function discoverFunding(hours: number = 24): Promise<FundingDiscoverResponse> {

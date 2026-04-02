@@ -121,7 +121,7 @@ async def _extract_funding_data(articles: list[dict[str, str]]) -> list[dict[str
 
         try:
             response = await retry_async(
-                lambda p=prompt: asyncio.get_event_loop().run_in_executor(
+                lambda p=prompt: asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: model.generate_content(
                         [_EXTRACTION_SYSTEM, p],
