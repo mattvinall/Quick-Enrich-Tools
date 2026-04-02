@@ -28,6 +28,9 @@ interface ExtractionSettingsProps {
   onJobTitlesChange: (titles: string[]) => void;
   maxContacts: number;
   onMaxContactsChange: (v: number) => void;
+  hasCompanyNames?: boolean;
+  serperApiKey?: string;
+  onSerperApiKeyChange?: (v: string) => void;
 }
 
 interface CheckboxItemProps {
@@ -73,6 +76,9 @@ export default function ExtractionSettings({
   onJobTitlesChange,
   maxContacts,
   onMaxContactsChange,
+  hasCompanyNames = false,
+  serperApiKey = "",
+  onSerperApiKeyChange,
 }: ExtractionSettingsProps) {
   const [titleInput, setTitleInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -275,6 +281,34 @@ export default function ExtractionSettings({
               ))}
             </select>
           </div>
+        </div>
+      )}
+
+      {hasCompanyNames && (
+        <div className="space-y-1.5 pt-2 border-t border-border">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-text-primary">
+              Serper API Key
+            </label>
+            <a
+              href="https://serper.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
+            >
+              Get Key <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+          <input
+            type="text"
+            value={serperApiKey}
+            onChange={(e) => onSerperApiKeyChange?.(e.target.value)}
+            placeholder="Your Serper API key"
+            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <p className="text-xs text-text-secondary">
+            Required to look up websites for company names. Free tier includes 2,500 searches.
+          </p>
         </div>
       )}
 

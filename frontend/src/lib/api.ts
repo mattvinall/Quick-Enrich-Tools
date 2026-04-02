@@ -122,6 +122,7 @@ export interface ExtractRequest {
   lines: string[];
   options: ExtractionOptions;
   quickenrich_api_key: string;
+  serper_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }

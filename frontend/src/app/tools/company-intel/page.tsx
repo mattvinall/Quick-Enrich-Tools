@@ -120,6 +120,9 @@ export default function CompanyIntelPage() {
   // QuickEnrich API key
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
 
+  // Serper API key (for company name resolution)
+  const [serperApiKey, setSerperApiKey] = useState('');
+
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
   const [maxContacts, setMaxContacts] = useState(3);
@@ -200,6 +203,7 @@ export default function CompanyIntelPage() {
             homepage_raw_text: homepageRawText,
           },
           quickenrich_api_key: quickenrichApiKey,
+          serper_api_key: serperApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -389,6 +393,9 @@ export default function CompanyIntelPage() {
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}
                     onMaxContactsChange={setMaxContacts}
+                    hasCompanyNames={lineStats.names > 0}
+                    serperApiKey={serperApiKey}
+                    onSerperApiKeyChange={setSerperApiKey}
                   />
 
                   <div className="flex gap-3 pt-2">
