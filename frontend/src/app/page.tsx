@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, Grid3X3, MapPin, Search, Users } from "lucide-react";
+import { ArrowRight, Grid3X3, Map, MapPin, Search, Users } from "lucide-react";
 import { tools } from "@/lib/tool-registry";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
@@ -21,6 +21,12 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   "g2-intel": (
     <div className="flex items-center gap-1 text-primary">
       <Grid3X3 className="w-5 h-5" />
+      <Users className="w-4 h-4" />
+    </div>
+  ),
+  "maps-intel": (
+    <div className="flex items-center gap-1 text-primary">
+      <Map className="w-5 h-5" />
       <Users className="w-4 h-4" />
     </div>
   ),
