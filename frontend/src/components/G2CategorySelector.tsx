@@ -228,7 +228,7 @@ export default function G2CategorySelector({
                       <span className="text-sm font-medium text-text-primary">{cat.name}</span>
                     </div>
                     <span className="text-xs text-text-secondary tabular-nums shrink-0">
-                      ~{cat.estimated_products}
+                      ~{cat.estimated_products} (est.)
                     </span>
                   </label>
                 );
