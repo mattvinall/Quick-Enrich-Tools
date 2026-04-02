@@ -107,11 +107,19 @@ async def scrape_page(
     client: httpx.AsyncClient,
     url: str,
     render: bool = False,
+    super_proxy: bool = False,
+    block_resources: bool = True,
 ) -> str:
     """Scrape a single URL. Returns raw HTML string.
 
     If SCRAPE_DO_API_KEY is configured, uses scrape.do API (recommended).
     Otherwise, fetches directly via httpx with a browser-like User-Agent.
+
+    Args:
+        render: Use headless browser for JS rendering (5 credits).
+        super_proxy: Use residential proxy pool (10 credits, or 25 with render).
+        block_resources: Block CSS/images/fonts (default True). Set False for
+            sites that detect missing resources as bot behavior.
     """
     if settings.scrape_do_api_key:
         # scrape.do API — handles anti-bot, residential proxies, optional JS rendering
@@ -122,7 +130,11 @@ async def scrape_page(
             f"&url={encoded_url}"
         )
         if render:
-            api_url += "&render=true"
+            api_url += "&render=true&waitUntil=networkidle2"
+            if not block_resources:
+                api_url += "&blockResources=false"
+        if super_proxy:
+            api_url += "&super=true"
 
         response = await retry_async(
             lambda: client.get(
@@ -274,18 +286,32 @@ async def crawl_site(
     result: dict[str, str] = {}
     homepage_url = f"https://{domain}"
 
-    # Step 1: Scrape homepage
+    # Step 1: Scrape homepage (3-pass escalation)
     try:
+        # Pass 1: Normal datacenter proxy, no JS rendering (1 credit)
         homepage_html = await scrape_page(client, homepage_url, render=False)
         homepage_text = extract_text_from_html(homepage_html)
 
-        # Retry with JS rendering if content too short and scrape.do is available
+        # Pass 2: JS rendering if content too short (5 credits)
         if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
             try:
+                logger.info("SCRAPE PASS 2 (render): %s", domain)
                 homepage_html = await scrape_page(client, homepage_url, render=True)
                 homepage_text = extract_text_from_html(homepage_html)
             except Exception:
-                pass  # Keep the original short text
+                pass
+
+        # Pass 3: Residential proxy + render + unblocked resources (25 credits)
+        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
+            try:
+                logger.info("SCRAPE PASS 3 (super+render): %s", domain)
+                homepage_html = await scrape_page(
+                    client, homepage_url,
+                    render=True, super_proxy=True, block_resources=False,
+                )
+                homepage_text = extract_text_from_html(homepage_html)
+            except Exception:
+                pass
 
         result[homepage_url] = homepage_text
     except Exception as exc:
