@@ -42,7 +42,7 @@ export const tools: ToolConfig[] = [
     name: "G2 Category to Company Intel",
     description:
       "Select G2 software categories to discover companies and extract business intelligence, contacts, and more.",
-    isActive: true,
+    isActive: false,
     backendUrl: API_BASE_URL,
     requiredColumns: [],
     optionalColumns: [],
@@ -53,7 +53,7 @@ export const tools: ToolConfig[] = [
     name: "Google Maps to Company Intel",
     description:
       "Search Google Maps by category and location to discover businesses, then extract business intelligence, contacts, and more.",
-    isActive: true,
+    isActive: false,
     backendUrl: API_BASE_URL,
     requiredColumns: [],
     optionalColumns: [],
@@ -64,7 +64,7 @@ export const tools: ToolConfig[] = [
     name: "Funded Companies Today",
     description:
       "Discover companies that received funding today and extract business intelligence, contacts, and more.",
-    isActive: true,
+    isActive: false,
     backendUrl: API_BASE_URL,
     requiredColumns: [],
     optionalColumns: [],
