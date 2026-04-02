@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     openai_api_key: str = ""
     resend_api_key: str = ""
+    resend_from_email: str = "QuickEnrich Tools <onboarding@resend.dev>"
     quickenrich_api_key: str = ""
     llm_provider: str = "gemini"
     storage_bucket: str = "quickenrich-results"
