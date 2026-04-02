@@ -114,7 +114,9 @@ export default function MapsIntelPage() {
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
   const canSubmit = hasSearches && hasOptions;
 
-  const estimatedTotal = searchTerms.length * maxPerSearch;
+  const estimatedTotal = csvSearches.length > 0
+    ? csvSearches.length * maxPerSearch
+    : searchTerms.length * maxPerSearch;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);

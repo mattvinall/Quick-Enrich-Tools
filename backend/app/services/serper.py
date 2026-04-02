@@ -179,7 +179,7 @@ async def search_maps(
             "X-API-KEY": api_key or settings.serper_api_key,
             "Content-Type": "application/json",
         },
-        json={"q": search_query, "gl": "us", "hl": "en"},
+        json={"q": search_query, "hl": "en"},
         timeout=15.0,
     )
     response.raise_for_status()
@@ -222,7 +222,7 @@ async def batch_search_maps(
                         max_retries=3,
                         base_delay=1.0,
                     )
-                    return term, loc, result.get("places", [])
+                    return term, loc, result.get("places", [])[:max_per_search]
                 except Exception as exc:
                     logger.warning("Maps search failed for '%s in %s': %s", term, loc, exc)
                     return term, loc, []

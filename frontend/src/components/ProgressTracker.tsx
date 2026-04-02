@@ -53,6 +53,7 @@ interface ProgressTrackerProps {
 // Map backend phase names to display phase names
 const PHASE_ALIASES: Record<string, string> = {
   g2_scrape: 'discover',
+  maps_search: 'search',
 };
 
 function findPhaseIndex(phases: readonly string[], phase: string | null): number {
