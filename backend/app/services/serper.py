@@ -151,3 +151,115 @@ async def batch_search(
 
     output.sort(key=lambda item: int(item["row_index"]))
     return output
+
+
+async def search_maps(
+    client: httpx.AsyncClient,
+    query: str,
+    location: str = "",
+    api_key: str | None = None,
+) -> dict[str, object]:
+    """Search Google Maps via the Serper /maps endpoint.
+
+    Returns a dict with keys: query, places (list of place dicts).
+    Results are cached by query + location for 3 days.
+    """
+    search_query = f"{query} in {location}" if location else query
+    cache_key = make_cache_key("serper_maps", search_query.lower())
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        logger.info("SERPER MAPS CACHE HIT: %s", search_query)
+        return cached
+
+    logger.info("SERPER MAPS SEARCH: %s", search_query)
+
+    response = await client.post(
+        "https://google.serper.dev/maps",
+        headers={
+            "X-API-KEY": api_key or settings.serper_api_key,
+            "Content-Type": "application/json",
+        },
+        json={"q": search_query, "hl": "en"},
+        timeout=15.0,
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    places: list[dict[str, object]] = data.get("places", [])
+    payload: dict[str, object] = {"query": search_query, "places": places}
+    await cache_set(cache_key, payload, 3)  # 3-day cache
+    return payload
+
+
+async def batch_search_maps(
+    searches: list[dict[str, str]],
+    max_per_search: int = 20,
+    concurrency: int | None = None,
+    api_key: str | None = None,
+) -> list[dict[str, object]]:
+    """Search Google Maps for multiple query+location pairs.
+
+    Each search: {"search_term": str, "location": str}
+    Returns a flat list of place dicts, each augmented with
+    'search_term' and 'location' keys. Deduplicates by normalized domain.
+
+    max_per_search is capped at 20 per query (single Serper page).
+    """
+    limit = concurrency if concurrency is not None else settings.serper_concurrency
+    semaphore = asyncio.Semaphore(limit)
+
+    async with httpx.AsyncClient() as client:
+
+        async def _search_one(
+            search: dict[str, str],
+        ) -> tuple[str, str, list[dict[str, object]]]:
+            term = search["search_term"]
+            loc = search["location"]
+            async with semaphore:
+                try:
+                    result = await retry_async(
+                        lambda t=term, l=loc: search_maps(client, t, l, api_key=api_key),
+                        max_retries=3,
+                        base_delay=1.0,
+                    )
+                    return term, loc, result.get("places", [])[:max_per_search]
+                except Exception as exc:
+                    logger.warning("Maps search failed for '%s in %s': %s", term, loc, exc)
+                    return term, loc, []
+
+        raw_outcomes = await asyncio.gather(
+            *[_search_one(s) for s in searches],
+            return_exceptions=True,
+        )
+
+    all_places: list[dict[str, object]] = []
+    seen_domains: set[str] = set()
+    seen_names: set[str] = set()
+
+    for outcome in raw_outcomes:
+        if isinstance(outcome, BaseException):
+            continue
+        term, loc, places = outcome
+        for place in places:
+            website = str(place.get("website") or "")
+            domain = _parse_domain(website) if website else ""
+
+            # Dedup by domain, or by name+location if no website
+            if domain:
+                if domain in seen_domains:
+                    continue
+                seen_domains.add(domain)
+            else:
+                name_key = f"{str(place.get('title', '')).lower()}|{loc.lower()}"
+                if name_key in seen_names:
+                    continue
+                seen_names.add(name_key)
+
+            place["search_term"] = term
+            place["location"] = loc
+            all_places.append(place)
+
+            if len(all_places) >= settings.max_rows:
+                return all_places
+
+    return all_places

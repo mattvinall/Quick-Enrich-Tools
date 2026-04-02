@@ -184,6 +184,7 @@ export interface G2ExtractRequest {
   max_per_category: number;
   options: ExtractionOptions;
   quickenrich_api_key: string;
+  serper_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }
@@ -204,4 +205,49 @@ export function submitG2Extraction(
 
 export function getG2DownloadUrl(jobId: string, token: string): string {
   return `${API_URL}/api/v1/g2/download/${jobId}?token=${encodeURIComponent(token)}`;
+}
+
+// ── Maps Intel ─────────────────────────────────────────────────────
+
+export interface MapsSearchItem {
+  search_term: string;
+  location: string;
+}
+
+export interface MapsExtractRequest {
+  // Interactive mode (same location for all terms)
+  search_terms?: string[];
+  location?: string;
+  // CSV mode (per-row locations) — overrides search_terms + location if present
+  searches?: MapsSearchItem[];
+  // Shared config
+  max_per_search: number;
+  options: ExtractionOptions;
+  quickenrich_api_key: string;
+  job_titles: string[];
+  max_contacts: number;
+}
+
+export interface MapsExtractResponse {
+  job_id: string;
+  total_searches: number;
+  token: string;
+}
+
+export function submitMapsExtraction(
+  body: MapsExtractRequest,
+  token: string,
+): Promise<MapsExtractResponse> {
+  return fetchAPI<MapsExtractResponse>(`${API_URL}/api/v1/maps/extract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export function getMapsDownloadUrl(jobId: string, token: string): string {
+  return `${API_URL}/api/v1/maps/download/${jobId}?token=${encodeURIComponent(token)}`;
 }

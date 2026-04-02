@@ -1,4 +1,5 @@
 import logging
+import time
 
 import resend
 
@@ -6,15 +7,22 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+_MAX_RETRIES = 3
+_BASE_DELAY = 2.0
+
 
 def send_results_email(to_email: str, download_url: str, job_stats: dict[str, int]) -> None:
-    """Send a branded results email via Resend.
+    """Send a branded results email via Resend with retry.
 
     Args:
         to_email: Recipient email address.
         download_url: Pre-signed URL pointing to the output CSV.
         job_stats: Dict containing total_rows, websites_found keys.
     """
+    if not settings.resend_api_key:
+        logger.error("RESEND_API_KEY not configured — skipping email to %s", to_email)
+        return
+
     resend.api_key = settings.resend_api_key
 
     total: int = job_stats.get("total_rows", 0)
@@ -117,11 +125,23 @@ def send_results_email(to_email: str, download_url: str, job_stats: dict[str, in
 </html>"""
 
     params: resend.Emails.SendParams = {
-        "from": "QuickEnrich Tools <onboarding@resend.dev>",
+        "from": "QuickEnrich Tools <noreply@leadsimple.io>",
         "to": [to_email],
         "subject": f"Your QuickEnrich Results — {found}/{total} websites found",
         "html": html,
     }
 
-    resend.Emails.send(params)
-    logger.info("Results email sent to %s (found=%d total=%d)", to_email, found, total)
+    last_exc = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resend.Emails.send(params)
+            logger.info("Results email sent to %s (found=%d total=%d)", to_email, found, total)
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES - 1:
+                delay = _BASE_DELAY * (2 ** attempt)
+                logger.warning("Email send attempt %d failed, retrying in %.0fs: %s", attempt + 1, delay, exc)
+                time.sleep(delay)
+
+    logger.error("Email delivery failed after %d attempts to %s: %s", _MAX_RETRIES, to_email, last_exc)

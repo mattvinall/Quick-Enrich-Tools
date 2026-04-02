@@ -48,6 +48,17 @@ export const tools: ToolConfig[] = [
     optionalColumns: [],
     columnPatterns: {},
   },
+  {
+    slug: "maps-intel",
+    name: "Google Maps to Company Intel",
+    description:
+      "Search Google Maps by category and location to discover businesses, then extract business intelligence, contacts, and more.",
+    isActive: true,
+    backendUrl: API_BASE_URL,
+    requiredColumns: [],
+    optionalColumns: [],
+    columnPatterns: {},
+  },
 ];
 
 export function getToolBySlug(slug: string): ToolConfig | undefined {

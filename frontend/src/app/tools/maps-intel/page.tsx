@@ -6,23 +6,23 @@ import { ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-import G2CategorySelector from '@/components/G2CategorySelector';
+import MapsSearchInput from '@/components/MapsSearchInput';
 import ExtractionSettings from '@/components/ExtractionSettings';
 import EmailGate from '@/components/EmailGate';
 import ProgressTracker from '@/components/ProgressTracker';
 import LivePreview from '@/components/LivePreview';
 import ResultsPanel from '@/components/ResultsPanel';
 import { useSSE } from '@/hooks/useSSE';
-import { captureEmail, submitG2Extraction, getG2DownloadUrl } from '@/lib/api';
+import { captureEmail, submitMapsExtraction, getMapsDownloadUrl } from '@/lib/api';
 
-type Phase = 'categories' | 'configure' | 'submit' | 'processing' | 'results';
+type Phase = 'search' | 'configure' | 'submit' | 'processing' | 'results';
 
-const PHASE_ORDER: Phase[] = ['categories', 'configure', 'submit', 'processing', 'results'];
+const PHASE_ORDER: Phase[] = ['search', 'configure', 'submit', 'processing', 'results'];
 
-const PIPELINE_PHASES = ['Discover', 'Resolve', 'Crawl', 'Extract', 'Enrich', 'Deliver'] as const;
+const PIPELINE_PHASES = ['Search', 'Resolve', 'Crawl', 'Extract', 'Enrich', 'Deliver'] as const;
 
 const STEP_MAP: Partial<Record<Phase, { step: number; total: number; label: string }>> = {
-  categories: { step: 1, total: 4, label: 'Select G2 categories' },
+  search:     { step: 1, total: 4, label: 'Search configuration' },
   configure:  { step: 2, total: 4, label: 'Extraction settings' },
   submit:     { step: 3, total: 4, label: 'Enter your email' },
   processing: { step: 4, total: 4, label: 'Processing' },
@@ -32,13 +32,15 @@ function phaseIndex(p: Phase): number {
   return PHASE_ORDER.indexOf(p);
 }
 
-export default function G2IntelPage() {
-  const [phase, setPhase] = useState<Phase>('categories');
+export default function MapsIntelPage() {
+  const [phase, setPhase] = useState<Phase>('search');
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
 
-  // Category selection
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [maxPerCategory, setMaxPerCategory] = useState(250);
+  // Search config
+  const [searchTerms, setSearchTerms] = useState<string[]>([]);
+  const [location, setLocation] = useState('');
+  const [maxPerSearch, setMaxPerSearch] = useState(20);
+  const [csvSearches, setCsvSearches] = useState<{ search_term: string; location: string }[]>([]);
 
   // Extraction options
   const [industryDescription, setIndustryDescription] = useState(true);
@@ -46,22 +48,21 @@ export default function G2IntelPage() {
   const [companyPeople, setCompanyPeople] = useState(true);
   const [homepageRawText, setHomepageRawText] = useState(false);
 
-  // QuickEnrich API key
+  // QuickEnrich API key (Serper key not needed — backend uses its own for Maps + resolve)
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
-  const [serperApiKey, setSerperApiKey] = useState('');
 
   // Contact config
-  const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
+  const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Owner']);
   const [maxContacts, setMaxContacts] = useState(3);
 
   // Job state — restore from localStorage
   const [jobId, setJobId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('qe_g2_job_id');
+    return localStorage.getItem('qe_maps_job_id');
   });
   const [token, setToken] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('qe_g2_token');
+    return localStorage.getItem('qe_maps_token');
   });
 
   // Submit state
@@ -71,14 +72,14 @@ export default function G2IntelPage() {
   // Persist job session
   useEffect(() => {
     if (jobId && token) {
-      localStorage.setItem('qe_g2_job_id', jobId);
-      localStorage.setItem('qe_g2_token', token);
+      localStorage.setItem('qe_maps_job_id', jobId);
+      localStorage.setItem('qe_maps_token', token);
     }
   }, [jobId, token]);
 
   // Resume saved job on mount
   useEffect(() => {
-    if (jobId && token && phase === 'categories') {
+    if (jobId && token && phase === 'search') {
       setPhase('processing');
     }
   }, []);
@@ -102,41 +103,46 @@ export default function G2IntelPage() {
   }
 
   function clearSession() {
-    localStorage.removeItem('qe_g2_job_id');
-    localStorage.removeItem('qe_g2_token');
+    localStorage.removeItem('qe_maps_job_id');
+    localStorage.removeItem('qe_maps_token');
     setJobId(null);
     setToken(null);
   }
 
   // Validation
-  const hasCategories = selectedCategories.length > 0;
+  const hasSearches = searchTerms.length > 0 && (location.trim().length > 0 || csvSearches.length > 0);
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const canSubmit = hasCategories && hasOptions;
+  const canSubmit = hasSearches && hasOptions;
+
+  const estimatedTotal = csvSearches.length > 0
+    ? csvSearches.length * maxPerSearch
+    : searchTerms.length * maxPerSearch;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
     setSubmitError('');
 
     try {
-      const capture = await captureEmail(email, 'g2-intel', 'g2-intel-page');
+      const capture = await captureEmail(email, 'maps-intel', 'maps-intel-page');
 
-      const result = await submitG2Extraction(
-        {
-          categories: selectedCategories,
-          max_per_category: maxPerCategory,
-          options: {
-            industry_description: industryDescription,
-            target_market: targetMarket,
-            company_people: companyPeople,
-            homepage_raw_text: homepageRawText,
-          },
-          quickenrich_api_key: quickenrichApiKey,
-          serper_api_key: serperApiKey,
-          job_titles: companyPeople ? jobTitles : [],
-          max_contacts: companyPeople ? maxContacts : 1,
+      const sharedOpts = {
+        max_per_search: maxPerSearch,
+        options: {
+          industry_description: industryDescription,
+          target_market: targetMarket,
+          company_people: companyPeople,
+          homepage_raw_text: homepageRawText,
         },
-        capture.token,
-      );
+        quickenrich_api_key: quickenrichApiKey,
+        job_titles: companyPeople ? jobTitles : [],
+        max_contacts: companyPeople ? maxContacts : 1,
+      };
+
+      const body = csvSearches.length > 0
+        ? { ...sharedOpts, searches: csvSearches }
+        : { ...sharedOpts, search_terms: searchTerms, location: location.trim() };
+
+      const result = await submitMapsExtraction(body, capture.token);
 
       setJobId(result.job_id);
       setToken(result.token);
@@ -158,10 +164,10 @@ export default function G2IntelPage() {
         {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-text-primary">
-            G2 Category to Company Intel
+            Google Maps to Company Intel
           </h1>
           <p className="text-text-secondary max-w-xl mx-auto">
-            Select G2 software categories to discover companies and extract business intelligence
+            Search Google Maps by category and location to discover businesses and extract business intelligence
           </p>
         </div>
 
@@ -201,25 +207,29 @@ export default function G2IntelPage() {
               transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
               className="bg-white rounded-2xl border border-border shadow-sm p-6 sm:p-8"
             >
-              {/* ---- PHASE: categories (Step 1) ---- */}
-              {phase === 'categories' && (
+              {/* ---- PHASE: search (Step 1) ---- */}
+              {phase === 'search' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-lg font-semibold text-text-primary">Select G2 categories</h2>
+                    <h2 className="text-lg font-semibold text-text-primary">Search Google Maps</h2>
                     <p className="text-sm text-text-secondary mt-0.5">
-                      Choose software categories to discover companies listed on G2.
+                      Enter search terms and a location to discover businesses.
                     </p>
                   </div>
 
-                  <G2CategorySelector
-                    selectedSlugs={selectedCategories}
-                    onSelectionChange={setSelectedCategories}
-                    maxPerCategory={maxPerCategory}
-                    onMaxPerCategoryChange={setMaxPerCategory}
+                  <MapsSearchInput
+                    searchTerms={searchTerms}
+                    onSearchTermsChange={setSearchTerms}
+                    location={location}
+                    onLocationChange={setLocation}
+                    maxPerSearch={maxPerSearch}
+                    onMaxPerSearchChange={setMaxPerSearch}
+                    csvSearches={csvSearches}
+                    onCsvSearchesChange={setCsvSearches}
                   />
 
                   <div className="flex justify-end">
-                    <Button onClick={() => navigate('configure')} disabled={!hasCategories} className="gap-2">
+                    <Button onClick={() => navigate('configure')} disabled={!hasSearches} className="gap-2">
                       Continue <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
@@ -232,7 +242,7 @@ export default function G2IntelPage() {
                   <div>
                     <h2 className="text-lg font-semibold text-text-primary">Extraction settings</h2>
                     <p className="text-sm text-text-secondary mt-0.5">
-                      Choose what data to extract from discovered companies.
+                      Choose what data to extract from discovered businesses.
                     </p>
                   </div>
 
@@ -245,11 +255,9 @@ export default function G2IntelPage() {
                     onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={setCompanyPeople}
                     onHomepageRawTextChange={setHomepageRawText}
-                    hasCompanyNames={true}
+                    hasCompanyNames={false}
                     quickenrichApiKey={quickenrichApiKey}
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
-                    serperApiKey={serperApiKey}
-                    onSerperApiKeyChange={setSerperApiKey}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}
@@ -257,7 +265,7 @@ export default function G2IntelPage() {
                   />
 
                   <div className="flex gap-3 pt-2">
-                    <Button variant="outline" onClick={() => navigate('categories')}>Back</Button>
+                    <Button variant="outline" onClick={() => navigate('search')}>Back</Button>
                     <Button onClick={() => navigate('submit')} disabled={!canSubmit} className="flex-1 gap-2">
                       Continue <ChevronRight className="w-4 h-4" />
                     </Button>
@@ -271,9 +279,18 @@ export default function G2IntelPage() {
                   <div>
                     <h2 className="text-lg font-semibold text-text-primary">Almost there!</h2>
                     <p className="text-sm text-text-secondary mt-0.5">
-                      Enter your email to start discovering companies from{' '}
+                      Enter your email to start searching{' '}
                       <span className="font-medium text-text-primary">
-                        {selectedCategories.length} G2 {selectedCategories.length === 1 ? 'category' : 'categories'}
+                        {searchTerms.length} {searchTerms.length === 1 ? 'term' : 'terms'}
+                      </span>{' '}
+                      {csvSearches.length > 0 ? (
+                        <>across <span className="font-medium text-text-primary">{new Set(csvSearches.map((s) => s.location)).size} locations</span></>
+                      ) : (
+                        <>in <span className="font-medium text-text-primary">{location}</span></>
+                      )}{' '}
+                      for up to{' '}
+                      <span className="font-medium text-text-primary">
+                        {estimatedTotal.toLocaleString()} businesses
                       </span>.
                       We&apos;ll email you when done.
                     </p>
@@ -300,10 +317,10 @@ export default function G2IntelPage() {
                 <div className="space-y-8">
                   <div className="text-center space-y-1">
                     <h2 className="text-xl font-semibold text-text-primary">
-                      Discovering & extracting company intelligence…
+                      Searching Google Maps & extracting intelligence...
                     </h2>
                     <p className="text-sm text-text-secondary">
-                      This may take a while for large categories. You can keep this tab open or close it — we&apos;ll email you.
+                      This may take a while for large searches. You can keep this tab open or close it — we&apos;ll email you.
                     </p>
                   </div>
 
@@ -337,7 +354,7 @@ export default function G2IntelPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                   </svg>
-                  <p className="text-sm">Connecting…</p>
+                  <p className="text-sm">Connecting...</p>
                 </div>
               )}
 
@@ -350,15 +367,17 @@ export default function G2IntelPage() {
                     totalRows={progress?.total_rows ?? 0}
                     foundCount={progress?.found_count ?? 0}
                     enrichedCount={companyPeople ? (progress?.found_count ?? 0) : 0}
-                    downloadUrlOverride={getG2DownloadUrl(jobId, token)}
+                    downloadUrlOverride={getMapsDownloadUrl(jobId, token)}
                   />
                   <div className="text-center">
                     <Button variant="ghost" onClick={() => {
                       clearSession();
-                      setPhase('categories');
-                      setSelectedCategories([]);
+                      setPhase('search');
+                      setSearchTerms([]);
+                      setLocation('');
+                      setCsvSearches([]);
                     }}>
-                      Start a new extraction
+                      Start a new search
                     </Button>
                   </div>
                 </div>

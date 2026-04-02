@@ -48,14 +48,17 @@ async def run_g2_pipeline(ctx: dict, job_id: str) -> None:
         job_id, len(categories), max_per_category,
     )
 
-    try:
-        async with AsyncSessionLocal() as progress_db:
-            await update_job_progress(progress_db, parsed_job_id, "g2_scrape", 0, len(categories))
-    except Exception:
-        pass
+    async def _on_g2_progress(done: int, total: int) -> None:
+        try:
+            async with AsyncSessionLocal() as progress_db:
+                await update_job_progress(progress_db, parsed_job_id, "g2_scrape", done, total)
+        except Exception:
+            pass
 
     try:
-        products = await batch_scrape_g2_categories(categories, max_per_category)
+        products = await batch_scrape_g2_categories(
+            categories, max_per_category, on_progress=_on_g2_progress
+        )
     except Exception as exc:
         logger.exception("G2 scrape failed for job_id=%s: %s", job_id, exc)
         async with AsyncSessionLocal() as db:
@@ -89,8 +92,9 @@ async def run_g2_pipeline(ctx: dict, job_id: str) -> None:
                     job_id=parsed_job_id,
                     row_index=batch_start + i,
                     input_data={
-                        "input": p["name"],
-                        "input_type": "name",
+                        "input": p.get("website") or p["name"],
+                        "input_type": "url" if p.get("website") else "name",
+                        "company_name": p["name"],
                         "g2_url": p.get("g2_url", ""),
                         "g2_category": p.get("g2_category", ""),
                         "g2_rating": p.get("rating"),

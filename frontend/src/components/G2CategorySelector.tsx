@@ -27,22 +27,25 @@ export default function G2CategorySelector({
   const [search, setSearch] = useState('');
   const [activeParent, setActiveParent] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Fetch categories on mount
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await getG2Categories();
-        setCategories(data.categories);
-        setParents(data.parents);
-      } catch {
-        // silent — user can retry
-      } finally {
-        setLoading(false);
-      }
+  async function loadCategories() {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getG2Categories();
+      setCategories(data.categories);
+      setParents(data.parents);
+    } catch {
+      setError('Failed to load categories. Please check your connection.');
+    } finally {
+      setLoading(false);
     }
-    load();
+  }
+
+  useEffect(() => {
+    loadCategories();
   }, []);
 
   // Filter categories
@@ -182,6 +185,17 @@ export default function G2CategorySelector({
           <div className="flex items-center justify-center h-24 text-sm text-text-secondary">
             Loading categories...
           </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-24 gap-2">
+            <p className="text-sm text-red-600">{error}</p>
+            <button
+              type="button"
+              onClick={loadCategories}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Retry
+            </button>
+          </div>
         ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center h-24 text-sm text-text-secondary">
             No categories match your search.
@@ -214,7 +228,7 @@ export default function G2CategorySelector({
                       <span className="text-sm font-medium text-text-primary">{cat.name}</span>
                     </div>
                     <span className="text-xs text-text-secondary tabular-nums shrink-0">
-                      ~{cat.estimated_products}
+                      ~{cat.estimated_products} (est.)
                     </span>
                   </label>
                 );

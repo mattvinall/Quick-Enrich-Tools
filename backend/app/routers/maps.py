@@ -1,4 +1,4 @@
-"""API endpoints for G2 Category to Company/People Intel tool."""
+"""API endpoints for the Google Maps to Company Intel tool."""
 
 import csv
 import io
@@ -16,15 +16,8 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
-from app.services.g2_categories import (
-    get_all_categories,
-    get_all_parents,
-    get_categories_by_parent,
-    get_category_by_slug,
-    search_categories,
-)
 
-router = APIRouter(prefix="/g2", tags=["g2"])
+router = APIRouter(prefix="/maps", tags=["maps"])
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -36,63 +29,73 @@ class ExtractionOptions(BaseModel):
     homepage_raw_text: bool = False
 
 
-class G2ExtractRequest(BaseModel):
-    categories: list[str]
-    max_per_category: int = 250
-    options: ExtractionOptions
+class MapsSearchItem(BaseModel):
+    search_term: str
+    location: str
+
+
+class MapsExtractRequest(BaseModel):
+    # Interactive mode
+    search_terms: list[str] = []
+    location: str = ""
+    # CSV mode (overrides search_terms + location if present)
+    searches: list[MapsSearchItem] = []
+    # Shared config
+    max_per_search: int = 20
+    options: ExtractionOptions = ExtractionOptions()
     quickenrich_api_key: str = ""
-    serper_api_key: str = ""
     job_titles: list[str] = []
     max_contacts: int = 3
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
 
-@router.get("/categories")
-async def list_categories(
-    search: str = Query(default="", description="Search query"),
-    parent: str = Query(default="", description="Filter by parent group"),
-) -> dict:
-    """Return G2 category registry. No auth required."""
-    if parent:
-        cats = get_categories_by_parent(parent)
-    elif search:
-        cats = search_categories(search)
-    else:
-        cats = get_all_categories()
-
-    parents = get_all_parents()
-    return {"categories": cats, "parents": parents, "total": len(cats)}
-
-
 @router.post("/extract")
-async def submit_g2_extraction(
-    body: G2ExtractRequest,
+async def submit_maps_extraction(
+    body: MapsExtractRequest,
     token_payload: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Validate categories, create Job, and launch g2_pipeline."""
-    # Validate categories
-    valid_slugs = []
-    for slug in body.categories:
-        cat = get_category_by_slug(slug)
-        if cat is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Unknown G2 category: {slug}",
-            )
-        valid_slugs.append(slug)
-
-    if not valid_slugs:
+    """Validate inputs, create Job, and launch maps_pipeline."""
+    # Normalize: convert interactive mode into searches list
+    if body.searches:
+        searches = [s.model_dump() for s in body.searches]
+    elif body.search_terms and body.location:
+        searches = [
+            {"search_term": t.strip(), "location": body.location.strip()}
+            for t in body.search_terms
+            if t.strip()
+        ]
+    else:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="At least one G2 category must be selected.",
+            detail="Provide either search_terms + location, or a searches list.",
         )
 
-    if len(valid_slugs) > 50:
+    if not searches:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Maximum 50 categories per extraction.",
+            detail="At least one search term is required.",
+        )
+
+    if len(searches) > 500:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Maximum 500 search term + location combinations.",
+        )
+
+    max_per = body.max_per_search
+    if max_per < 1 or max_per > 20:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="max_per_search must be between 1 and 20.",
+        )
+
+    total_expected = len(searches) * max_per
+    if total_expected > 50_000:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Expected {total_expected} results exceeds the 50,000 limit. Reduce search terms or max per search.",
         )
 
     opts = body.options
@@ -102,44 +105,37 @@ async def submit_g2_extraction(
             detail="At least one extraction option must be selected.",
         )
 
-    if body.max_per_category < 1 or body.max_per_category > 1000:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="max_per_category must be between 1 and 1000.",
-        )
-
     email = str(token_payload["sub"])
     email_capture_id = str(token_payload.get("job_id", ""))
 
     job_config = {
-        "categories": valid_slugs,
-        "max_per_category": body.max_per_category,
+        "searches": searches,
+        "max_per_search": max_per,
         "options": opts.model_dump(),
         "quickenrich_api_key": body.quickenrich_api_key,
-        "serper_api_key": body.serper_api_key,
         "job_titles": body.job_titles,
         "max_contacts": body.max_contacts,
     }
 
     job = Job(
         email_capture_id=uuid.UUID(email_capture_id),
-        tool_slug="g2-intel",
+        tool_slug="maps-intel",
         status="pending",
-        total_rows=0,  # Updated after G2 scrape discovers actual count
+        total_rows=0,  # Updated after Maps discovery
         config=job_config,
     )
     db.add(job)
     await db.flush()
 
-    # Run pipeline as background task (same pattern as intel.py)
+    # Run pipeline as background task
     import asyncio
-    from app.workers.g2_pipeline import run_g2_pipeline
-    asyncio.create_task(run_g2_pipeline({}, str(job.id)))
+    from app.workers.maps_pipeline import run_maps_pipeline
+    asyncio.create_task(run_maps_pipeline({}, str(job.id)))
 
     new_token = create_token(email, str(job.id))
     return {
         "job_id": str(job.id),
-        "total_rows": 0,
+        "total_searches": len(searches),
         "token": new_token,
     }
 
@@ -147,23 +143,33 @@ async def submit_g2_extraction(
 # ── CSV Download ─────────────────────────────────────────────────────
 
 _BATCH_SIZE = 500
-_BASE_COLUMNS = ["g2_category", "g2_url", "g2_rating", "g2_review_count", "input", "website", "status"]
+_MAPS_COLUMNS = [
+    "search_term", "location", "business_name", "category",
+    "maps_address", "maps_phone", "website", "rating", "review_count",
+    "latitude", "longitude", "google_maps_url", "status",
+]
 _CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
 
 
-def _extract_g2_row(result: JobResult, options: dict, max_contacts: int = 5) -> list[str]:
+def _extract_maps_row(result: JobResult, options: dict, max_contacts: int = 5) -> list[str]:
     input_data = result.input_data or {}
     extracted = result.extracted_data or {}
 
-    g2_category = input_data.get("g2_category", "")
-    g2_url = input_data.get("g2_url", "")
-    g2_rating = str(input_data.get("g2_rating") or "")
-    g2_review_count = str(input_data.get("g2_review_count") or "")
-    original_input = input_data.get("input", "")
-    website = result.normalized_domain or result.raw_domain or ""
-    row_status = result.status
-
-    base = [g2_category, g2_url, g2_rating, g2_review_count, original_input, website, row_status]
+    maps_base = [
+        str(input_data.get("search_term", "")),
+        str(input_data.get("location", "")),
+        str(input_data.get("business_name", "")),
+        str(input_data.get("category", "")),
+        str(input_data.get("maps_address", "")),
+        str(input_data.get("maps_phone", "")),
+        result.normalized_domain or result.raw_domain or "",
+        str(input_data.get("rating") or ""),
+        str(input_data.get("review_count") or ""),
+        str(input_data.get("latitude") or ""),
+        str(input_data.get("longitude") or ""),
+        str(input_data.get("google_maps_url", "")),
+        result.status,
+    ]
 
     intel_cells: list[str] = []
     if options.get("industry_description"):
@@ -204,11 +210,11 @@ def _extract_g2_row(result: JobResult, options: dict, max_contacts: int = 5) -> 
         contact_cells.append(contact.get("phone", ""))
         contact_cells.append(contact.get("linkedin_url", ""))
 
-    return base + intel_cells + contact_cells
+    return maps_base + intel_cells + contact_cells
 
 
-def _build_g2_headers(options: dict, max_contacts: int = 5) -> list[str]:
-    headers = list(_BASE_COLUMNS)
+def _build_maps_headers(options: dict, max_contacts: int = 5) -> list[str]:
+    headers = list(_MAPS_COLUMNS)
 
     if options.get("industry_description"):
         headers.extend(["industry", "niche", "description", "address", "phone", "general_emails"])
@@ -229,13 +235,13 @@ def _build_g2_headers(options: dict, max_contacts: int = 5) -> list[str]:
     return headers
 
 
-async def _stream_g2_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, None]:
+async def _stream_maps_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, None]:
     yield b"\xef\xbb\xbf"
 
     config = job.config or {}
     options = config.get("options", {})
 
-    headers = _build_g2_headers(options)
+    headers = _build_maps_headers(options)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -260,7 +266,7 @@ async def _stream_g2_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, No
         buf = io.StringIO()
         writer = csv.writer(buf)
         for result in rows:
-            writer.writerow(_extract_g2_row(result, options))
+            writer.writerow(_extract_maps_row(result, options))
         yield buf.getvalue().encode("utf-8")
 
         if len(rows) < _BATCH_SIZE:
@@ -269,7 +275,7 @@ async def _stream_g2_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, No
 
 
 @router.get("/download/{job_id}")
-async def download_g2_results(
+async def download_maps_results(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     token: str = Query(default=""),
@@ -293,10 +299,10 @@ async def download_g2_results(
         raise HTTPException(status_code=400, detail="Job is not yet completed")
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"g2_intel_results_{timestamp}.csv"
+    filename = f"maps_intel_results_{timestamp}.csv"
 
     return StreamingResponse(
-        _stream_g2_csv(job, db),
+        _stream_maps_csv(job, db),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
