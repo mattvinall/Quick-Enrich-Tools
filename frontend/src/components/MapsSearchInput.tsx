@@ -88,7 +88,7 @@ export default function MapsSearchInput({
 
         if (locations.size === 1) {
           // All rows share same location — use interactive mode
-          onLocationChange([...locations][0]);
+          onLocationChange(Array.from(locations)[0]);
           onCsvSearchesChange([]);
         } else if (locations.size > 1 && perRowSearches.length > 0) {
           // Different locations per row — use CSV mode
