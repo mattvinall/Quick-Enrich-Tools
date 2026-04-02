@@ -22,7 +22,6 @@ def _build_field_instructions(options: dict) -> str:
             '"description": string — a ~600 word professional description of the company based on the website content',
             '"address": string or null — the company\'s physical address if found',
             '"phone": string or null — the company\'s main phone number if found',
-            '"general_emails": list of strings — generic emails found (info@, contact@, hello@, support@, sales@, etc.)',
         ])
 
     if options.get("target_market"):
@@ -34,7 +33,6 @@ def _build_field_instructions(options: dict) -> str:
     if options.get("company_people"):
         fields.extend([
             '"website_contacts": list of objects — people found on the website, each with "name" and "title" fields',
-            '"general_emails": list of strings — generic emails found (info@, contact@, hello@, support@, sales@, etc.)',
         ])
 
     return "\n".join(f"  - {f}" for f in fields)
@@ -65,7 +63,6 @@ Rules:
 - Only include information you can directly find or confidently infer from the provided text.
 - For "description": Write a ~600 word professional description of the company based on the content. Focus on what they do, who they serve, and their value proposition.
 - For "case_studies": Extract company/organization names mentioned as clients or in case studies/testimonials. Return as a flat list of strings.
-- For "general_emails": Look for emails like info@, contact@, hello@, support@, sales@. Do NOT include personal employee emails.
 - For "address": Extract the full mailing/office address if found.
 - For "phone": Extract the main company phone number if found.
 - For "website_contacts": Extract names and titles of people mentioned on the website (team page, about page, etc.). Each entry should have "name" (string) and "title" (string).

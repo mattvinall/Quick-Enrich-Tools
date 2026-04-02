@@ -154,6 +154,29 @@ async def scrape_page(
     return response.text
 
 
+_GENERIC_EMAIL_PREFIXES = {
+    "info", "contact", "hello", "support", "sales", "help",
+    "admin", "office", "team", "general", "enquiries", "inquiries",
+    "mail", "service", "billing", "hr", "careers", "press", "media",
+}
+
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+
+
+def extract_generic_emails(html: str) -> list[str]:
+    """Extract generic company emails (info@, contact@, etc.) from raw HTML via regex."""
+    all_emails = _EMAIL_RE.findall(html)
+    seen: set[str] = set()
+    result: list[str] = []
+    for email in all_emails:
+        lower = email.lower()
+        prefix = lower.split("@")[0]
+        if prefix in _GENERIC_EMAIL_PREFIXES and lower not in seen:
+            seen.add(lower)
+            result.append(lower)
+    return result
+
+
 def extract_text_from_html(html: str) -> str:
     """Strip HTML to visible text using BeautifulSoup.
 
