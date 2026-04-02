@@ -48,6 +48,7 @@ export default function G2IntelPage() {
 
   // QuickEnrich API key
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
+  const [serperApiKey, setSerperApiKey] = useState('');
 
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
@@ -130,6 +131,7 @@ export default function G2IntelPage() {
             homepage_raw_text: homepageRawText,
           },
           quickenrich_api_key: quickenrichApiKey,
+          serper_api_key: serperApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -243,8 +245,11 @@ export default function G2IntelPage() {
                     onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={setCompanyPeople}
                     onHomepageRawTextChange={setHomepageRawText}
+                    hasCompanyNames={true}
                     quickenrichApiKey={quickenrichApiKey}
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
+                    serperApiKey={serperApiKey}
+                    onSerperApiKeyChange={setSerperApiKey}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}

@@ -41,6 +41,7 @@ class G2ExtractRequest(BaseModel):
     max_per_category: int = 250
     options: ExtractionOptions
     quickenrich_api_key: str = ""
+    serper_api_key: str = ""
     job_titles: list[str] = []
     max_contacts: int = 3
 
@@ -115,6 +116,7 @@ async def submit_g2_extraction(
         "max_per_category": body.max_per_category,
         "options": opts.model_dump(),
         "quickenrich_api_key": body.quickenrich_api_key,
+        "serper_api_key": body.serper_api_key,
         "job_titles": body.job_titles,
         "max_contacts": body.max_contacts,
     }
