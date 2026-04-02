@@ -59,6 +59,17 @@ export const tools: ToolConfig[] = [
     optionalColumns: [],
     columnPatterns: {},
   },
+  {
+    slug: "funding-intel",
+    name: "Funded Companies Today",
+    description:
+      "Discover companies that received funding today and extract business intelligence, contacts, and more.",
+    isActive: true,
+    backendUrl: API_BASE_URL,
+    requiredColumns: [],
+    optionalColumns: [],
+    columnPatterns: {},
+  },
 ];
 
 export function getToolBySlug(slug: string): ToolConfig | undefined {

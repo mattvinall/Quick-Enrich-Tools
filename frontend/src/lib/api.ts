@@ -251,3 +251,53 @@ export function submitMapsExtraction(
 export function getMapsDownloadUrl(jobId: string, token: string): string {
   return `${API_URL}/api/v1/maps/download/${jobId}?token=${encodeURIComponent(token)}`;
 }
+
+// ── Funding Intel ──────────────────────────────────────────────────
+
+export interface FundingCompany {
+  company_name: string;
+  funding_amount: string | null;
+  funding_round: string;
+  lead_investor: string | null;
+  description_snippet: string | null;
+  source_url: string;
+  source_name: string;
+}
+
+export interface FundingDiscoverResponse {
+  companies: FundingCompany[];
+  total: number;
+  cached_at?: string;
+}
+
+export function discoverFunding(hours: number = 24): Promise<FundingDiscoverResponse> {
+  return fetchAPI<FundingDiscoverResponse>(
+    `${API_URL}/api/v1/funding/discover?hours=${hours}`,
+  );
+}
+
+export interface FundingExtractRequest {
+  companies: FundingCompany[];
+  options: ExtractionOptions;
+  quickenrich_api_key: string;
+  job_titles: string[];
+  max_contacts: number;
+}
+
+export function submitFundingExtraction(
+  body: FundingExtractRequest,
+  token: string,
+): Promise<ExtractResponse> {
+  return fetchAPI<ExtractResponse>(`${API_URL}/api/v1/funding/extract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export function getFundingDownloadUrl(jobId: string, token: string): string {
+  return `${API_URL}/api/v1/funding/download/${jobId}?token=${encodeURIComponent(token)}`;
+}
