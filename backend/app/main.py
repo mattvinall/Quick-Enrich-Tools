@@ -19,6 +19,7 @@ from app.database import engine
 from app.routers import clay, download, email_capture, jobs, tools, upload
 from app.routers import intel
 from app.routers import g2
+from app.routers import maps
 
 
 async def _run_arq_worker() -> None:
@@ -27,8 +28,9 @@ async def _run_arq_worker() -> None:
     from app.workers.pipeline import WorkerSettings as P2WorkerSettings
     from app.workers.intel_pipeline import run_intel_pipeline
     from app.workers.g2_pipeline import run_g2_pipeline
+    from app.workers.maps_pipeline import run_maps_pipeline
 
-    all_functions = list(P2WorkerSettings.functions) + [run_intel_pipeline, run_g2_pipeline]
+    all_functions = list(P2WorkerSettings.functions) + [run_intel_pipeline, run_g2_pipeline, run_maps_pipeline]
 
     worker = Worker(
         functions=all_functions,
@@ -77,6 +79,7 @@ app.include_router(clay.router, prefix="/api/v1")
 app.include_router(tools.router, prefix="/api/v1")
 app.include_router(intel.router, prefix="/api/v1")
 app.include_router(g2.router, prefix="/api/v1")
+app.include_router(maps.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])
