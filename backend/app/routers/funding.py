@@ -136,10 +136,11 @@ _FUNDING_COLUMNS = [
     "company_name", "funding_amount", "funding_round", "lead_investor",
     "funding_description", "source_url", "source_name", "website", "status",
 ]
-_CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
+_CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
 
 
-def _extract_funding_row(result: JobResult, options: dict, max_contacts: int = 5) -> list[str]:
+def _extract_funding_rows(result: JobResult, options: dict) -> list[list[str]]:
+    """Return one CSV row per contact. Companies with no contacts get one row with empty contact fields."""
     input_data = result.input_data or {}
     extracted = result.extracted_data or {}
 
@@ -179,25 +180,31 @@ def _extract_funding_row(result: JobResult, options: dict, max_contacts: int = 5
     if options.get("homepage_raw_text"):
         intel_cells.append(str(extracted.get("homepage_raw_text") or ""))
 
+    prefix = funding_base + intel_cells
+
     raw_contacts = result.contacts
     all_contacts: list[dict] = []
     if isinstance(raw_contacts, list):
         all_contacts = [c for c in raw_contacts if isinstance(c, dict)]
 
-    contact_cells: list[str] = []
-    for idx in range(max_contacts):
-        contact = all_contacts[idx] if idx < len(all_contacts) else {}
-        contact_cells.append(contact.get("title", ""))
-        contact_cells.append(contact.get("first_name", ""))
-        contact_cells.append(contact.get("last_name", ""))
-        contact_cells.append(contact.get("email", ""))
-        contact_cells.append(contact.get("phone", ""))
-        contact_cells.append(contact.get("linkedin_url", ""))
+    if not all_contacts:
+        return [prefix + ["", "", "", "", "", ""]]
 
-    return funding_base + intel_cells + contact_cells
+    rows: list[list[str]] = []
+    for contact in all_contacts:
+        contact_cells = [
+            contact.get("title", ""),
+            contact.get("first_name", ""),
+            contact.get("last_name", ""),
+            contact.get("email", ""),
+            contact.get("phone", ""),
+            contact.get("linkedin_url", ""),
+        ]
+        rows.append(prefix + contact_cells)
+    return rows
 
 
-def _build_funding_headers(options: dict, max_contacts: int = 5) -> list[str]:
+def _build_funding_headers(options: dict) -> list[str]:
     headers = list(_FUNDING_COLUMNS)
 
     if options.get("industry_description"):
@@ -212,9 +219,7 @@ def _build_funding_headers(options: dict, max_contacts: int = 5) -> list[str]:
     if options.get("homepage_raw_text"):
         headers.append("homepage_raw_text")
 
-    for i in range(1, max_contacts + 1):
-        for field in _CONTACT_FIELDS:
-            headers.append(f"contact_{i}_{field.lower().replace(' ', '_')}")
+    headers.extend(_CONTACT_COLUMNS)
 
     return headers
 
@@ -224,9 +229,8 @@ async def _stream_funding_csv(job: Job, db: AsyncSession) -> AsyncGenerator[byte
 
     config = job.config or {}
     options = config.get("options", {})
-    max_contacts = int(config.get("max_contacts", 5))
 
-    headers = _build_funding_headers(options, max_contacts)
+    headers = _build_funding_headers(options)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -251,7 +255,8 @@ async def _stream_funding_csv(job: Job, db: AsyncSession) -> AsyncGenerator[byte
         buf = io.StringIO()
         writer = csv.writer(buf)
         for result in rows:
-            writer.writerow(_extract_funding_row(result, options, max_contacts))
+            for csv_row in _extract_funding_rows(result, options):
+                writer.writerow(csv_row)
         yield buf.getvalue().encode("utf-8")
 
         if len(rows) < _BATCH_SIZE:
