@@ -79,7 +79,7 @@ def _build_preview_row(result: JobResult) -> PreviewRow:
     input_data: dict[str, str] = result.input_data or {}
 
     # P3 stores {input: "apple.com", input_type: "url"}, P2 stores {company_name: "...", location: "..."}
-    company_name: str | None = input_data.get("company_name") or input_data.get("Company Name") or input_data.get("input")
+    company_name: str | None = input_data.get("company_name") or input_data.get("Company Name") or input_data.get("business_name") or input_data.get("input")
     location: str | None = input_data.get("location") or input_data.get("Location")
 
     domain: str | None = result.normalized_domain or result.verified_domain or None

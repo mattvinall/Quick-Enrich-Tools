@@ -68,15 +68,25 @@ async def enrich_company(
         for raw_results in all_results:
             if isinstance(raw_results, BaseException):
                 continue
-            for record in raw_results[:max_contacts]:
-                email = str(record.get("email") or "")
-                first = str(record.get("first_name") or "")
-                last = str(record.get("last_name") or "")
-                dedup_key = email.lower() if email and email != "N/A" else f"{first}|{last}".lower()
+            for record in raw_results:
+                if len(contacts) >= max_contacts:
+                    break
 
-                if dedup_key in seen_keys:
+                email = str(record.get("email") or "").strip()
+                first = str(record.get("first_name") or "").strip()
+                last = str(record.get("last_name") or "").strip()
+
+                if email and email.upper() != "N/A":
+                    dedup_key = email.lower()
+                elif first or last:
+                    dedup_key = f"{first}|{last}".lower()
+                else:
+                    dedup_key = None  # No usable key — skip dedup for this contact
+
+                if dedup_key is not None and dedup_key in seen_keys:
                     continue
-                seen_keys.add(dedup_key)
+                if dedup_key is not None:
+                    seen_keys.add(dedup_key)
 
                 contacts.append(
                     {
@@ -90,6 +100,8 @@ async def enrich_company(
                         ),
                     }
                 )
+            if len(contacts) >= max_contacts:
+                break
 
         await cache_set(cache_key, {"contacts": contacts}, settings.cache_ttl_days)
     except Exception as exc:

@@ -85,7 +85,12 @@ async def _call_gemini(prompt: str) -> dict:
             temperature=0.1,
         ),
     )
-    return json.loads(response.text)
+    try:
+        text = response.text
+    except (ValueError, AttributeError):
+        # Safety-filtered or empty candidates — nothing usable
+        return {}
+    return json.loads(text)
 
 
 async def _call_openai(prompt: str) -> dict:

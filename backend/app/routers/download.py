@@ -16,6 +16,14 @@ from app.models import Job, JobResult
 
 router = APIRouter(tags=["download"])
 
+
+def _sanitize_csv(value: str) -> str:
+    """Prevent CSV injection by prefixing formula-triggering characters."""
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 _BATCH_SIZE = 500
 _BASE_COLUMNS = ["company_name", "location", "website", "verification_confidence", "status"]
 _CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
@@ -37,12 +45,12 @@ def _extract_rows(result: JobResult) -> list[list[str]]:
     """Return one CSV row per contact. Companies with no contacts get one row with empty contact fields."""
     input_data: dict[str, str] = result.input_data or {}
 
-    company_name = (
+    company_name = _sanitize_csv(
         input_data.get("company_name")
         or input_data.get("Company Name")
         or ""
     )
-    location = (
+    location = _sanitize_csv(
         input_data.get("location")
         or input_data.get("Location")
         or ""
@@ -64,10 +72,10 @@ def _extract_rows(result: JobResult) -> list[list[str]]:
     rows: list[list[str]] = []
     for contact in all_contacts:
         contact_cells = [
-            contact.get("title", ""),
-            contact.get("first_name", ""),
-            contact.get("last_name", ""),
-            contact.get("email", ""),
+            _sanitize_csv(contact.get("title", "")),
+            _sanitize_csv(contact.get("first_name", "")),
+            _sanitize_csv(contact.get("last_name", "")),
+            _sanitize_csv(contact.get("email", "")),
             contact.get("phone", ""),
             contact.get("linkedin_url", ""),
         ]

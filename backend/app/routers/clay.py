@@ -1,5 +1,7 @@
+import ipaddress
 import uuid
 from typing import Annotated
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,6 +16,23 @@ from app.models import Job, JobResult
 router = APIRouter(tags=["clay"])
 
 _BATCH_SIZE = 100
+
+
+def _is_valid_webhook_url(url: str) -> bool:
+    """Validate webhook URL to prevent SSRF attacks."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return False
+    hostname = parsed.hostname or ""
+    if not hostname or hostname in ("localhost", "127.0.0.1", "0.0.0.0"):
+        return False
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            return False
+    except ValueError:
+        pass  # hostname is a domain name, not an IP — OK
+    return True
 
 
 class ClayPushRequest(BaseModel):
@@ -56,13 +75,18 @@ async def clay_push(
     job_id: uuid.UUID,
     body: ClayPushRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _token: Annotated[dict[str, str | int], Depends(verify_token)],
+    token_payload: Annotated[dict[str, str | int], Depends(verify_token)],
 ) -> ClayPushResponse:
     """Push completed job results to Clay via webhook URL in batches."""
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    token_job_id = str(token_payload.get("job_id", ""))
+    if token_job_id != str(job.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     if job.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -81,6 +105,12 @@ async def clay_push(
     total = len(results)
     pushed = 0
     failed = 0
+
+    if not _is_valid_webhook_url(body.webhook_url):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid webhook URL: must be HTTPS and not target private/internal networks",
+        )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for batch_start in range(0, total, _BATCH_SIZE):

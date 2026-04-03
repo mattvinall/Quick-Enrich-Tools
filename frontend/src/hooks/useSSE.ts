@@ -49,7 +49,20 @@ export function useSSE(
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) return;
-          const data: JobProgress = await res.json();
+          const raw = await res.json();
+          // Transform GET /jobs response to match SSE JobProgress shape
+          const data: JobProgress = {
+            status: raw.status,
+            processed_rows: raw.processed_rows ?? 0,
+            total_rows: raw.total_rows ?? 0,
+            current_phase: raw.current_phase ?? null,
+            phase_progress: raw.current_phase && raw.phase_progress != null
+              ? { [raw.current_phase]: { done: Math.round(raw.phase_progress * (raw.total_rows ?? 0)), total: raw.total_rows ?? 0 } }
+              : {},
+            found_count: raw.processed_rows ?? 0,
+            enriched_count: 0,
+            error: raw.error_message,
+          };
           setProgress(data);
           if (isTerminal(data)) {
             stopPolling();

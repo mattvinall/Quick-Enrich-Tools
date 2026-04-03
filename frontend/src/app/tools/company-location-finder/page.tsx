@@ -434,7 +434,7 @@ export default function CompanyLocationFinderPage() {
                     token={token}
                     totalRows={progress?.total_rows ?? 0}
                     foundCount={progress?.found_count ?? 0}
-                    enrichedCount={enrichContacts ? (progress?.found_count ?? 0) : 0}
+                    enrichedCount={progress?.enriched_count ?? 0}
                   />
                   <div className="text-center">
                     <Button

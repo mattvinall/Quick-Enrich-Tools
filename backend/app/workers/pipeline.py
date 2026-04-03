@@ -418,7 +418,7 @@ async def _phase_deliver(
         }
 
         try:
-            send_results_email(
+            await send_results_email(
                 to_email=email_capture.email,
                 download_url=download_url,
                 job_stats=job_stats,

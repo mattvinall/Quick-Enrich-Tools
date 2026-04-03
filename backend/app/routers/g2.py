@@ -1,7 +1,9 @@
 """API endpoints for G2 Category to Company/People Intel tool."""
 
+import asyncio
 import csv
 import io
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -25,6 +27,7 @@ from app.services.g2_categories import (
 )
 
 router = APIRouter(prefix="/g2", tags=["g2"])
+logger = logging.getLogger(__name__)
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -129,12 +132,17 @@ async def submit_g2_extraction(
         config=job_config,
     )
     db.add(job)
-    await db.flush()
+    await db.commit()
 
     # Run pipeline as background task (same pattern as intel.py)
-    import asyncio
     from app.workers.g2_pipeline import run_g2_pipeline
-    asyncio.create_task(run_g2_pipeline({}, str(job.id)))
+
+    def _on_done(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("Pipeline failed for job %s: %s", job.id, t.exception())
+
+    task = asyncio.create_task(run_g2_pipeline({}, str(job.id)))
+    task.add_done_callback(_on_done)
 
     new_token = create_token(email, str(job.id))
     return {
@@ -146,6 +154,13 @@ async def submit_g2_extraction(
 
 # ── CSV Download ─────────────────────────────────────────────────────
 
+def _sanitize_csv(value: str) -> str:
+    """Prevent CSV injection by prefixing formula-triggering characters."""
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 _BATCH_SIZE = 500
 _BASE_COLUMNS = ["g2_category", "g2_url", "g2_rating", "g2_review_count", "input", "website", "status"]
 _CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
@@ -156,11 +171,11 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
     input_data = result.input_data or {}
     extracted = result.extracted_data or {}
 
-    g2_category = input_data.get("g2_category", "")
+    g2_category = _sanitize_csv(input_data.get("g2_category", ""))
     g2_url = input_data.get("g2_url", "")
     g2_rating = str(input_data.get("g2_rating") or "")
     g2_review_count = str(input_data.get("g2_review_count") or "")
-    original_input = input_data.get("input", "")
+    original_input = _sanitize_csv(input_data.get("input", ""))
     website = result.normalized_domain or result.raw_domain or ""
     row_status = result.status
 
@@ -181,12 +196,6 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
         case_studies = extracted.get("case_studies") or []
         intel_cells.append(", ".join(case_studies) if isinstance(case_studies, list) else str(case_studies))
 
-    if options.get("company_people"):
-        generic_emails = extracted.get("general_emails") or []
-        if not isinstance(generic_emails, list):
-            generic_emails = []
-        intel_cells.append(", ".join(generic_emails))
-
     if options.get("homepage_raw_text"):
         intel_cells.append(str(extracted.get("homepage_raw_text") or ""))
 
@@ -203,10 +212,10 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
     rows: list[list[str]] = []
     for contact in all_contacts:
         contact_cells = [
-            contact.get("title", ""),
-            contact.get("first_name", ""),
-            contact.get("last_name", ""),
-            contact.get("email", ""),
+            _sanitize_csv(contact.get("title", "")),
+            _sanitize_csv(contact.get("first_name", "")),
+            _sanitize_csv(contact.get("last_name", "")),
+            _sanitize_csv(contact.get("email", "")),
             contact.get("phone", ""),
             contact.get("linkedin_url", ""),
         ]
@@ -218,13 +227,10 @@ def _build_g2_headers(options: dict) -> list[str]:
     headers = list(_BASE_COLUMNS)
 
     if options.get("industry_description"):
-        headers.extend(["industry", "niche", "description", "address", "phone", "general_emails"])
+        headers.extend(["industry", "niche", "description", "address", "company_phone", "general_emails"])
 
     if options.get("target_market"):
         headers.extend(["target_market", "case_studies"])
-
-    if options.get("company_people"):
-        headers.append("generic_emails")
 
     if options.get("homepage_raw_text"):
         headers.append("homepage_raw_text")

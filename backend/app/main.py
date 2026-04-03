@@ -46,6 +46,14 @@ async def _run_arq_worker() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    if settings.jwt_secret == "change-me":
+        import warnings
+        warnings.warn(
+            "JWT_SECRET is set to the default 'change-me'. "
+            "Set a strong secret in production!",
+            stacklevel=2,
+        )
+
     # Start ARQ worker as a background task
     worker_task = asyncio.create_task(_run_arq_worker())
     logger.info("ARQ worker task created")

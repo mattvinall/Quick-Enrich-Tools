@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import tldextract
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import AsyncSessionLocal
@@ -114,7 +115,7 @@ async def _phase_resolve_worker(
                         name_rows.append({
                             "row_index": r.row_index,
                             "company_name": raw_input,
-                            "location": "",
+                            "location": (r.input_data or {}).get("location", ""),
                         })
 
                 if name_rows:
@@ -209,6 +210,7 @@ async def _phase_crawl_worker(
                         generic_emails = extract_generic_emails(all_text)
                         if generic_emails:
                             r.extracted_data["general_emails"] = generic_emails
+                        flag_modified(r, "extracted_data")
                     elif not r.raw_domain:
                         r.status = "not_found"
                     else:
@@ -368,6 +370,7 @@ async def _phase_enrich_worker(
                 if not enrich_people or not job_titles or not quickenrich_api_key:
                     total_enriched += len(result_ids)
                     progress["enrich"] = total_enriched
+                    await update_job_progress(db, job_id, "enrich", total_enriched, total_rows)
                     continue
 
                 result = await db.execute(
@@ -423,7 +426,14 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
         )
         all_results = list(result.scalars().all())
         extracted_count = sum(1 for r in all_results if r.extracted_data)
-        contacts_count = sum(1 for r in all_results if r.contacts and len(r.contacts) > 0)
+        seen_contacts: set[str] = set()
+        for r in all_results:
+            if r.contacts:
+                for c in r.contacts:
+                    key = c.get("email") or f"{c.get('first_name', '')}|{c.get('last_name', '')}"
+                    if key and key != "|":
+                        seen_contacts.add(key)
+        contacts_count = len(seen_contacts)
 
         email_capture_result = await db.execute(
             select(EmailCapture).where(EmailCapture.id == job.email_capture_id)
@@ -444,7 +454,7 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
         }
 
         try:
-            send_results_email(
+            await send_results_email(
                 to_email=email_capture.email,
                 download_url=download_url,
                 job_stats=job_stats,

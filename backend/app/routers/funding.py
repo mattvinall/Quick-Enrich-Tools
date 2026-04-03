@@ -1,12 +1,15 @@
 """API endpoints for the Funded Companies Today tool."""
 
+import asyncio
 import csv
 import io
+import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,6 +22,27 @@ from app.models import Job, JobResult
 from app.services.funding_discovery import discover_funded_companies
 
 router = APIRouter(prefix="/funding", tags=["funding"])
+logger = logging.getLogger(__name__)
+
+# In-memory rate limiter for the unauthenticated /discover endpoint
+_discover_rate: dict[str, list[float]] = {}
+_DISCOVER_MAX_REQUESTS = 10
+_DISCOVER_WINDOW_SECONDS = 60
+
+
+def _check_discover_rate_limit(client_ip: str) -> None:
+    """Allow up to _DISCOVER_MAX_REQUESTS per IP per rolling window."""
+    now = time.monotonic()
+    timestamps = _discover_rate.get(client_ip, [])
+    # Prune old entries
+    timestamps = [t for t in timestamps if now - t < _DISCOVER_WINDOW_SECONDS]
+    if len(timestamps) >= _DISCOVER_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Try again later.",
+        )
+    timestamps.append(now)
+    _discover_rate[client_ip] = timestamps
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -52,6 +76,7 @@ class FundingExtractRequest(BaseModel):
 
 @router.get("/discover")
 async def discover_funding(
+    request: Request,
     hours: int = Query(default=24, description="Look back window: 24 or 48 hours"),
 ) -> dict:
     """Discover companies funded in the last N hours.
@@ -59,6 +84,7 @@ async def discover_funding(
     Only accepts hours=24 or hours=48 to limit cache buckets and
     prevent abuse of Serper/Gemini API calls via parameter variation.
     """
+    _check_discover_rate_limit(request.client.host if request.client else "unknown")
     if hours not in (24, 48):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -117,9 +143,14 @@ async def submit_funding_extraction(
     db.add(job)
     await db.commit()
 
-    import asyncio
     from app.workers.funding_pipeline import run_funding_pipeline
-    asyncio.create_task(run_funding_pipeline({}, str(job.id)))
+
+    def _on_done(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("Pipeline failed for job %s: %s", job.id, t.exception())
+
+    task = asyncio.create_task(run_funding_pipeline({}, str(job.id)))
+    task.add_done_callback(_on_done)
 
     new_token = create_token(email, str(job.id))
     return {
@@ -130,6 +161,13 @@ async def submit_funding_extraction(
 
 
 # ── CSV Download ─────────────────────────────────────────────────────
+
+def _sanitize_csv(value: str) -> str:
+    """Prevent CSV injection by prefixing formula-triggering characters."""
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
 
 _BATCH_SIZE = 500
 _FUNDING_COLUMNS = [
@@ -145,10 +183,10 @@ def _extract_funding_rows(result: JobResult, options: dict) -> list[list[str]]:
     extracted = result.extracted_data or {}
 
     funding_base = [
-        str(input_data.get("company_name", "")),
+        _sanitize_csv(str(input_data.get("company_name", ""))),
         str(input_data.get("funding_amount") or ""),
         str(input_data.get("funding_round", "")),
-        str(input_data.get("lead_investor") or ""),
+        _sanitize_csv(str(input_data.get("lead_investor") or "")),
         str(input_data.get("funding_description") or ""),
         str(input_data.get("source_url", "")),
         str(input_data.get("source_name", "")),
@@ -171,12 +209,6 @@ def _extract_funding_rows(result: JobResult, options: dict) -> list[list[str]]:
         case_studies = extracted.get("case_studies") or []
         intel_cells.append(", ".join(case_studies) if isinstance(case_studies, list) else str(case_studies))
 
-    if options.get("company_people"):
-        generic_emails = extracted.get("general_emails") or []
-        if not isinstance(generic_emails, list):
-            generic_emails = []
-        intel_cells.append(", ".join(generic_emails))
-
     if options.get("homepage_raw_text"):
         intel_cells.append(str(extracted.get("homepage_raw_text") or ""))
 
@@ -193,10 +225,10 @@ def _extract_funding_rows(result: JobResult, options: dict) -> list[list[str]]:
     rows: list[list[str]] = []
     for contact in all_contacts:
         contact_cells = [
-            contact.get("title", ""),
-            contact.get("first_name", ""),
-            contact.get("last_name", ""),
-            contact.get("email", ""),
+            _sanitize_csv(contact.get("title", "")),
+            _sanitize_csv(contact.get("first_name", "")),
+            _sanitize_csv(contact.get("last_name", "")),
+            _sanitize_csv(contact.get("email", "")),
             contact.get("phone", ""),
             contact.get("linkedin_url", ""),
         ]
@@ -208,13 +240,10 @@ def _build_funding_headers(options: dict) -> list[str]:
     headers = list(_FUNDING_COLUMNS)
 
     if options.get("industry_description"):
-        headers.extend(["industry", "niche", "description", "address", "phone", "general_emails"])
+        headers.extend(["industry", "niche", "description", "address", "company_phone", "general_emails"])
 
     if options.get("target_market"):
         headers.extend(["target_market", "case_studies"])
-
-    if options.get("company_people"):
-        headers.append("generic_emails")
 
     if options.get("homepage_raw_text"):
         headers.append("homepage_raw_text")

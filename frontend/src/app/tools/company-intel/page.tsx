@@ -489,7 +489,7 @@ export default function CompanyIntelPage() {
                     token={token}
                     totalRows={progress?.total_rows ?? 0}
                     foundCount={progress?.found_count ?? 0}
-                    enrichedCount={companyPeople ? (progress?.found_count ?? 0) : 0}
+                    enrichedCount={progress?.enriched_count ?? 0}
                     downloadUrlOverride={getIntelDownloadUrl(jobId, token)}
                   />
                   <div className="text-center">

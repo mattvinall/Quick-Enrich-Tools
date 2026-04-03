@@ -1,7 +1,9 @@
 """API endpoints for the Google Maps to Company Intel tool."""
 
+import asyncio
 import csv
 import io
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -18,6 +20,7 @@ from app.database import get_db
 from app.models import Job, JobResult
 
 router = APIRouter(prefix="/maps", tags=["maps"])
+logger = logging.getLogger(__name__)
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -125,12 +128,17 @@ async def submit_maps_extraction(
         config=job_config,
     )
     db.add(job)
-    await db.flush()
+    await db.commit()
 
     # Run pipeline as background task
-    import asyncio
     from app.workers.maps_pipeline import run_maps_pipeline
-    asyncio.create_task(run_maps_pipeline({}, str(job.id)))
+
+    def _on_done(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("Pipeline failed for job %s: %s", job.id, t.exception())
+
+    task = asyncio.create_task(run_maps_pipeline({}, str(job.id)))
+    task.add_done_callback(_on_done)
 
     new_token = create_token(email, str(job.id))
     return {
@@ -141,6 +149,13 @@ async def submit_maps_extraction(
 
 
 # ── CSV Download ─────────────────────────────────────────────────────
+
+def _sanitize_csv(value: str) -> str:
+    """Prevent CSV injection by prefixing formula-triggering characters."""
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
 
 _BATCH_SIZE = 500
 _MAPS_COLUMNS = [
@@ -157,11 +172,11 @@ def _extract_maps_rows(result: JobResult, options: dict) -> list[list[str]]:
     extracted = result.extracted_data or {}
 
     maps_base = [
-        str(input_data.get("search_term", "")),
-        str(input_data.get("location", "")),
-        str(input_data.get("business_name", "")),
-        str(input_data.get("category", "")),
-        str(input_data.get("maps_address", "")),
+        _sanitize_csv(str(input_data.get("search_term", ""))),
+        _sanitize_csv(str(input_data.get("location", ""))),
+        _sanitize_csv(str(input_data.get("business_name", ""))),
+        _sanitize_csv(str(input_data.get("category", ""))),
+        _sanitize_csv(str(input_data.get("maps_address", ""))),
         str(input_data.get("maps_phone", "")),
         result.normalized_domain or result.raw_domain or "",
         str(input_data.get("rating") or ""),
@@ -187,12 +202,6 @@ def _extract_maps_rows(result: JobResult, options: dict) -> list[list[str]]:
         case_studies = extracted.get("case_studies") or []
         intel_cells.append(", ".join(case_studies) if isinstance(case_studies, list) else str(case_studies))
 
-    if options.get("company_people"):
-        generic_emails = extracted.get("general_emails") or []
-        if not isinstance(generic_emails, list):
-            generic_emails = []
-        intel_cells.append(", ".join(generic_emails))
-
     if options.get("homepage_raw_text"):
         intel_cells.append(str(extracted.get("homepage_raw_text") or ""))
 
@@ -209,10 +218,10 @@ def _extract_maps_rows(result: JobResult, options: dict) -> list[list[str]]:
     rows: list[list[str]] = []
     for contact in all_contacts:
         contact_cells = [
-            contact.get("title", ""),
-            contact.get("first_name", ""),
-            contact.get("last_name", ""),
-            contact.get("email", ""),
+            _sanitize_csv(contact.get("title", "")),
+            _sanitize_csv(contact.get("first_name", "")),
+            _sanitize_csv(contact.get("last_name", "")),
+            _sanitize_csv(contact.get("email", "")),
             contact.get("phone", ""),
             contact.get("linkedin_url", ""),
         ]
@@ -224,13 +233,10 @@ def _build_maps_headers(options: dict) -> list[str]:
     headers = list(_MAPS_COLUMNS)
 
     if options.get("industry_description"):
-        headers.extend(["industry", "niche", "description", "address", "phone", "general_emails"])
+        headers.extend(["industry", "niche", "description", "address", "company_phone", "general_emails"])
 
     if options.get("target_market"):
         headers.extend(["target_market", "case_studies"])
-
-    if options.get("company_people"):
-        headers.append("generic_emails")
 
     if options.get("homepage_raw_text"):
         headers.append("homepage_raw_text")

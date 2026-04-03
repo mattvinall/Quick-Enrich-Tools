@@ -1,5 +1,5 @@
+import asyncio
 import logging
-import time
 
 import resend
 
@@ -11,7 +11,7 @@ _MAX_RETRIES = 3
 _BASE_DELAY = 2.0
 
 
-def send_results_email(to_email: str, download_url: str, job_stats: dict[str, int]) -> None:
+async def send_results_email(to_email: str, download_url: str, job_stats: dict[str, int]) -> None:
     """Send a branded results email via Resend with retry.
 
     Args:
@@ -142,6 +142,6 @@ def send_results_email(to_email: str, download_url: str, job_stats: dict[str, in
             if attempt < _MAX_RETRIES - 1:
                 delay = _BASE_DELAY * (2 ** attempt)
                 logger.warning("Email send attempt %d failed, retrying in %.0fs: %s", attempt + 1, delay, exc)
-                time.sleep(delay)
+                await asyncio.sleep(delay)
 
     logger.error("Email delivery failed after %d attempts to %s: %s", _MAX_RETRIES, to_email, last_exc)

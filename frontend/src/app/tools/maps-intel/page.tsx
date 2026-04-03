@@ -110,7 +110,7 @@ export default function MapsIntelPage() {
   }
 
   // Validation
-  const hasSearches = searchTerms.length > 0 && (location.trim().length > 0 || csvSearches.length > 0);
+  const hasSearches = csvSearches.length > 0 || (searchTerms.length > 0 && location.trim().length > 0);
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
   const canSubmit = hasSearches && hasOptions;
 
@@ -366,7 +366,7 @@ export default function MapsIntelPage() {
                     token={token}
                     totalRows={progress?.total_rows ?? 0}
                     foundCount={progress?.found_count ?? 0}
-                    enrichedCount={companyPeople ? (progress?.found_count ?? 0) : 0}
+                    enrichedCount={progress?.enriched_count ?? 0}
                     downloadUrlOverride={getMapsDownloadUrl(jobId, token)}
                   />
                   <div className="text-center">
