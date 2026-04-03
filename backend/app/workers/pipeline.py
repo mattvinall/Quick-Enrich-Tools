@@ -390,9 +390,16 @@ async def _phase_deliver(
         )
         all_results = list(result.scalars().all())
         found = sum(1 for r in all_results if r.normalized_domain)
-        contacts_enriched = sum(
-            1 for r in all_results if r.contacts and len(r.contacts) > 0
-        )
+        # Count unique contacts by email (or name if no email) to avoid
+        # inflating the number when multiple rows share the same domain.
+        seen_contacts: set[str] = set()
+        for r in all_results:
+            if r.contacts:
+                for c in r.contacts:
+                    key = c.get("email") or f"{c.get('first_name', '')}|{c.get('last_name', '')}"
+                    if key and key != "|":
+                        seen_contacts.add(key)
+        contacts_enriched = len(seen_contacts)
 
         email_capture_result = await db.execute(
             select(EmailCapture).where(EmailCapture.id == job.email_capture_id)

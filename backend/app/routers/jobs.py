@@ -193,6 +193,14 @@ async def job_sse(
                 )
                 found_count: int = found_count_result.scalar_one() or 0
 
+                enriched_count_result = await session.execute(
+                    select(func.count(JobResult.id)).where(
+                        JobResult.job_id == job_id,
+                        JobResult.contacts.isnot(None),
+                    )
+                )
+                enriched_count: int = enriched_count_result.scalar_one() or 0
+
                 # Send phase_progress as {current_phase: {done, total}} for frontend
                 phase_progress_out: dict = {}
                 if isinstance(job.phase_progress, dict) and job.current_phase:
@@ -205,6 +213,7 @@ async def job_sse(
                     "current_phase": job.current_phase,
                     "phase_progress": phase_progress_out,
                     "found_count": found_count,
+                    "enriched_count": enriched_count,
                 })
                 yield f"data: {event_data}\n\n"
 
@@ -239,7 +248,7 @@ async def get_job_preview(
             JobResult.job_id == job_id,
             JobResult.status != "pending",
         )
-        .order_by(JobResult.row_index.desc())
+        .order_by(JobResult.row_index.asc())
         .limit(limit)
         .offset(offset)
     )

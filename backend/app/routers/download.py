@@ -18,7 +18,7 @@ router = APIRouter(tags=["download"])
 
 _BATCH_SIZE = 500
 _BASE_COLUMNS = ["company_name", "location", "website", "verification_confidence", "status"]
-_CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
+_CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
 
 
 def _job_or_404(job: Job | None) -> Job:
@@ -33,33 +33,8 @@ def _assert_token_owns_job(payload: dict[str, str | int], job: Job) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
-def _collect_job_titles(config: dict[str, str | int | bool | list[str]] | None) -> list[str]:
-    """Return the ordered list of contact job titles from the job's config."""
-    if not config:
-        return []
-    raw = config.get("job_titles", [])
-    if isinstance(raw, list):
-        return [str(t) for t in raw if t]
-    if isinstance(raw, str):
-        import json
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return [str(t) for t in parsed if t]
-        except (json.JSONDecodeError, TypeError):
-            return [t.strip() for t in raw.split(",") if t.strip()]
-    return []
-
-
-def _build_contact_headers(titles: list[str]) -> list[str]:
-    headers: list[str] = []
-    for title in titles:
-        for field in _CONTACT_FIELDS:
-            headers.append(f"{title} - {field}")
-    return headers
-
-
-def _extract_row(result: JobResult, titles: list[str]) -> list[str]:
+def _extract_rows(result: JobResult) -> list[list[str]]:
+    """Return one CSV row per contact. Companies with no contacts get one row with empty contact fields."""
     input_data: dict[str, str] = result.input_data or {}
 
     company_name = (
@@ -78,32 +53,33 @@ def _extract_row(result: JobResult, titles: list[str]) -> list[str]:
 
     base: list[str] = [company_name, location, website, confidence, row_status]
 
-    # Assign contacts to title columns positionally — first contact goes
-    # to the first title column, second to the second, etc.
     raw_contacts = result.contacts
     all_contacts: list[dict[str, str]] = []
     if isinstance(raw_contacts, list):
         all_contacts = [c for c in raw_contacts if isinstance(c, dict)]
 
-    contact_cells: list[str] = []
-    for idx in range(len(titles)):
-        contact = all_contacts[idx] if idx < len(all_contacts) else {}
-        contact_cells.append(contact.get("title", ""))
-        contact_cells.append(contact.get("first_name", ""))
-        contact_cells.append(contact.get("last_name", ""))
-        contact_cells.append(contact.get("email", ""))
-        contact_cells.append(contact.get("phone", ""))
-        contact_cells.append(contact.get("linkedin_url", ""))
+    if not all_contacts:
+        return [base + ["", "", "", "", "", ""]]
 
-    return base + contact_cells
+    rows: list[list[str]] = []
+    for contact in all_contacts:
+        contact_cells = [
+            contact.get("title", ""),
+            contact.get("first_name", ""),
+            contact.get("last_name", ""),
+            contact.get("email", ""),
+            contact.get("phone", ""),
+            contact.get("linkedin_url", ""),
+        ]
+        rows.append(base + contact_cells)
+    return rows
 
 
 async def _stream_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, None]:
     # UTF-8 BOM for Excel compatibility
     yield b"\xef\xbb\xbf"
 
-    titles = _collect_job_titles(job.config)
-    headers = _BASE_COLUMNS + _build_contact_headers(titles)
+    headers = _BASE_COLUMNS + _CONTACT_COLUMNS
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -128,7 +104,8 @@ async def _stream_csv(job: Job, db: AsyncSession) -> AsyncGenerator[bytes, None]
         buf = io.StringIO()
         writer = csv.writer(buf)
         for result in rows:
-            writer.writerow(_extract_row(result, titles))
+            for csv_row in _extract_rows(result):
+                writer.writerow(csv_row)
         yield buf.getvalue().encode("utf-8")
 
         if len(rows) < _BATCH_SIZE:

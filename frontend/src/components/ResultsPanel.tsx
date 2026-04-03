@@ -13,7 +13,7 @@ import ClayPushModal from './ClayPushModal';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 interface ResultRow {
-  index: number;
+  row_index: number;
   company_name: string;
   location?: string;
   domain?: string;
@@ -121,14 +121,25 @@ export default function ResultsPanel({
 
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('index');
+  const [sortKey, setSortKey] = useState<SortKey>('row_index');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const matchRate = totalRows > 0 ? Math.round((foundCount / totalRows) * 100) : 0;
   const downloadUrl = downloadUrlOverride ?? getDownloadUrl(jobId, token);
 
-  // Determine whether enrichment columns are present
-  const actualEnrichedCount = rows.filter((r) => r.contact_name).length;
+  // Count unique contacts across all rows (multiple rows may share the same domain/contacts)
+  const actualEnrichedCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (row.contacts) {
+        for (const c of row.contacts) {
+          const key = c.email || `${c.first_name || ''}|${c.last_name || ''}`;
+          if (key && key !== '|') seen.add(key);
+        }
+      }
+    }
+    return seen.size;
+  }, [rows]);
   const hasEnrichment = enrichedCount > 0 || actualEnrichedCount > 0;
 
   // Detect P3 mode: rows have no location data but may have intel data
@@ -441,7 +452,7 @@ export default function ResultsPanel({
                     ) : (
                       filteredRows.map((row, i) => (
                         <motion.tr
-                          key={row.index}
+                          key={row.row_index}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: Math.min(i * 0.02, 0.3) }}
