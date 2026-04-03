@@ -249,7 +249,7 @@ export default function ResultsPanel({
       ? [
           {
             label: 'Contacts Enriched',
-            value: actualEnrichedCount || enrichedCount,
+            value: actualEnrichedCount,
             color: 'text-purple-600',
             bg: 'bg-purple-50',
             border: 'border-purple-200',
