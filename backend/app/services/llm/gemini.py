@@ -8,12 +8,14 @@ from app.services.retry import retry_async
 _PROMPT_TEMPLATE = """\
 You are a domain verification assistant. For each company below, determine whether the candidate domain is the official website of that company.
 
+You are given ALL search results (up to 3) so you can compare alternatives. The candidate_domain is from the top result, but it may not be correct — always check the other results too.
+
 Rules:
 - A domain MATCHES if it is the primary official website for the company.
 - A domain does NOT match if it belongs to a social network (linkedin.com, facebook.com, twitter.com, instagram.com, youtube.com, etc.) or a business directory (yelp.com, yellowpages.com, crunchbase.com, glassdoor.com, bbb.org, etc.).
-- Use the search snippet as supporting evidence but do not rely on it exclusively.
-- Use the location to disambiguate companies with similar names.
-- If the candidate domain does not match, suggest a better domain if you are confident one exists, otherwise leave suggested_domain as null.
+- Compare the candidate domain against ALL search results. If a different result has a domain that better matches the company name and location, set match=false and suggest that better domain instead.
+- Be wary of similar-but-different domains (e.g. "acme.com" vs "acmeinc.com") — verify the snippet/title actually refers to the right organization.
+- Use the location to disambiguate companies with similar names. If the snippet references a different city/state than the provided location, lower your confidence.
 - confidence is a float between 0.0 and 1.0 representing how certain you are.
 
 Respond with a JSON array only — no markdown, no extra text. Each element must have exactly these keys:
@@ -27,11 +29,18 @@ Companies to verify:
 def _build_items_block(batch: list[dict]) -> str:
     lines: list[str] = []
     for item in batch:
-        lines.append(
+        header = (
             f"- row_index={item['row_index']} | company=\"{item['company_name']}\" | "
-            f"location=\"{item.get('location', '')}\" | candidate_domain=\"{item['candidate_domain']}\" | "
-            f"snippet=\"{item.get('search_snippet', '')}\""
+            f"location=\"{item.get('location', '')}\" | candidate_domain=\"{item['candidate_domain']}\""
         )
+        lines.append(header)
+        search_results = item.get("search_results", [])
+        if isinstance(search_results, list):
+            for i, sr in enumerate(search_results[:3]):
+                domain = sr.get("domain", "")
+                title = sr.get("title", "")
+                snippet = sr.get("snippet", "")
+                lines.append(f"    result_{i+1}: domain=\"{domain}\" | title=\"{title}\" | snippet=\"{snippet}\"")
     return "\n".join(lines)
 
 

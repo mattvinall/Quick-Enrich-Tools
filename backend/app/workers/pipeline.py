@@ -170,22 +170,23 @@ async def _phase_verify_worker(
                     await db.commit()
 
                 if with_domain:
-                    # Build LLM items
+                    # Build LLM items — pass ALL search results so the LLM
+                    # can cross-reference alternatives and pick the best domain.
                     all_items: list[dict[str, object]] = []
                     for r in with_domain:
                         search_results = r.search_results or {}
-                        first_result: dict[str, object] = {}
+                        sr_list: list[dict[str, object]] = []
                         if isinstance(search_results, dict):
-                            sr_list = search_results.get("results", [])
-                            if isinstance(sr_list, list) and sr_list:
-                                first_result = sr_list[0]
+                            raw_list = search_results.get("results", [])
+                            if isinstance(raw_list, list):
+                                sr_list = raw_list
                         all_items.append(
                             {
                                 "row_index": r.row_index,
                                 "company_name": r.input_data.get("company_name", ""),
                                 "location": r.input_data.get("location", ""),
                                 "candidate_domain": r.raw_domain or "",
-                                "search_snippet": str(first_result.get("snippet", "")),
+                                "search_results": sr_list,
                             }
                         )
 
