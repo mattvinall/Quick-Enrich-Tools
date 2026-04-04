@@ -70,6 +70,17 @@ export const tools: ToolConfig[] = [
     optionalColumns: [],
     columnPatterns: {},
   },
+  {
+    slug: "people-intel",
+    name: "People Intel by Name",
+    description:
+      "Upload names and company names to find LinkedIn profiles and extract business intelligence, contacts, and more.",
+    isActive: true,
+    backendUrl: API_BASE_URL,
+    requiredColumns: [],
+    optionalColumns: [],
+    columnPatterns: {},
+  },
 ];
 
 export function getToolBySlug(slug: string): ToolConfig | undefined {

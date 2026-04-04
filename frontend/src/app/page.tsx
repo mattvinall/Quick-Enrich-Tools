@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, DollarSign, Grid3X3, Map, MapPin, Search, Users } from "lucide-react";
+import { ArrowRight, DollarSign, Grid3X3, Map, MapPin, Search, UserSearch, Users } from "lucide-react";
 import { tools } from "@/lib/tool-registry";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
@@ -33,6 +33,12 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   "funding-intel": (
     <div className="flex items-center gap-1 text-primary">
       <DollarSign className="w-5 h-5" />
+      <Users className="w-4 h-4" />
+    </div>
+  ),
+  "people-intel": (
+    <div className="flex items-center gap-1 text-primary">
+      <UserSearch className="w-5 h-5" />
       <Users className="w-4 h-4" />
     </div>
   ),

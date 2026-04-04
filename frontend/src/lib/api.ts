@@ -301,3 +301,38 @@ export function submitFundingExtraction(
 export function getFundingDownloadUrl(jobId: string, token: string): string {
   return `${API_URL}/api/v1/funding/download/${jobId}?token=${encodeURIComponent(token)}`;
 }
+
+// ── People Intel ────────────────────────────────────────────────────
+
+export interface PeopleItem {
+  full_name: string;
+  company_name: string;
+  website?: string;
+}
+
+export interface PeopleExtractRequest {
+  items: PeopleItem[];
+  options: ExtractionOptions;
+  serper_api_key: string;
+  quickenrich_api_key: string;
+  job_titles: string[];
+  max_contacts: number;
+}
+
+export function submitPeopleExtraction(
+  body: PeopleExtractRequest,
+  token: string,
+): Promise<ExtractResponse> {
+  return fetchAPI<ExtractResponse>(`${API_URL}/api/v1/people/extract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export function getPeopleDownloadUrl(jobId: string, token: string): string {
+  return `${API_URL}/api/v1/people/download/${jobId}?token=${encodeURIComponent(token)}`;
+}

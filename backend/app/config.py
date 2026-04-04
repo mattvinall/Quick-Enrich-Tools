@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     g2_max_pages_per_category: int = 10
     g2_max_total_companies: int = 50_000
     g2_cache_ttl_days: int = 3
+    linkedin_search_concurrency: int = 50
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

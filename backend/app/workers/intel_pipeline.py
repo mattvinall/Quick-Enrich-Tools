@@ -443,7 +443,7 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
         from app.auth import create_token
         download_token = create_token(email_capture.email, str(job_id))
         # Use tool-slug-aware download endpoint
-        dl_slug_map = {"g2-intel": "g2", "maps-intel": "maps", "funding-intel": "funding"}
+        dl_slug_map = {"g2-intel": "g2", "maps-intel": "maps", "funding-intel": "funding", "people-intel": "people"}
         dl_prefix = dl_slug_map.get(job.tool_slug, "intel")
         download_url = f"{settings.backend_url}/api/v1/{dl_prefix}/download/{job_id}?token={download_token}"
 
