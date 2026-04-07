@@ -1,6 +1,6 @@
-"""ARQ worker — 5-phase pipeline for company intelligence extraction.
+"""6-phase pipeline for company intelligence extraction.
 
-Phases: Resolve → Crawl → Extract → Enrich → Deliver
+Phases: Resolve → Verify → Crawl → Extract → Enrich → Deliver
 Uses bounded asyncio.Queue for backpressure between phases.
 """
 
@@ -55,6 +55,18 @@ def _extract_domain_from_url(url: str) -> str:
         if idx != -1:
             url = url[:idx]
     return url
+
+
+def _has_meaningful_intel(extracted_data: dict) -> bool:
+    """Check if extracted_data has at least one non-trivial intel field."""
+    if not extracted_data:
+        return False
+    intel_keys = ("industry", "niche", "description", "target_market", "case_studies")
+    for key in intel_keys:
+        val = extracted_data.get(key)
+        if val and str(val).strip():
+            return True
+    return False
 
 
 async def update_job_progress(
@@ -153,6 +165,126 @@ async def _phase_resolve_worker(
         await queue_out.put(None)
 
 
+async def _phase_verify_worker(
+    job_id: uuid.UUID,
+    total_rows: int,
+    queue_in: asyncio.Queue[QueueItem],
+    queue_out: asyncio.Queue[QueueItem],
+    error_event: asyncio.Event,
+    progress: dict[str, int],
+) -> None:
+    """Phase 2: LLM-based domain verification for name-resolved rows."""
+    from app.services.llm import get_llm_provider
+
+    provider = get_llm_provider()
+    verify_sem = asyncio.Semaphore(settings.verify_concurrency)
+
+    async def _verify_batch(items: list[dict]) -> list:
+        async with verify_sem:
+            return await provider.verify_domains(items)
+
+    try:
+        async with AsyncSessionLocal() as db:
+            total_verified = 0
+
+            while True:
+                if error_event.is_set():
+                    break
+
+                msg = await queue_in.get()
+                if msg is None:
+                    break
+
+                result_ids: list[uuid.UUID] = msg
+
+                result = await db.execute(
+                    select(JobResult).where(JobResult.id.in_(result_ids))
+                )
+                batch_results = list(result.scalars().all())
+
+                # Only verify name-resolved rows (URL inputs skip verification)
+                needs_verify = [
+                    r for r in batch_results
+                    if r.raw_domain
+                    and (r.input_data or {}).get("input_type") != "url"
+                ]
+                skip_verify = [
+                    r for r in batch_results
+                    if not r.raw_domain
+                    or (r.input_data or {}).get("input_type") == "url"
+                ]
+
+                # Rows without a domain are already not_found
+                for r in skip_verify:
+                    if not r.raw_domain:
+                        r.status = "not_found"
+
+                if needs_verify:
+                    all_items: list[dict] = []
+                    for r in needs_verify:
+                        search_results = r.search_results or {}
+                        sr_list: list[dict] = []
+                        if isinstance(search_results, dict):
+                            raw_list = search_results.get("results", [])
+                            if isinstance(raw_list, list):
+                                sr_list = raw_list
+                        all_items.append({
+                            "row_index": r.row_index,
+                            "company_name": (r.input_data or {}).get("company_name", "")
+                                or (r.input_data or {}).get("input", ""),
+                            "location": (r.input_data or {}).get("location", ""),
+                            "candidate_domain": r.raw_domain or "",
+                            "search_results": sr_list,
+                        })
+
+                    # Split into LLM batches and run in parallel
+                    llm_batch_size = provider.max_batch_size
+                    llm_batches = [
+                        all_items[i:i + llm_batch_size]
+                        for i in range(0, len(all_items), llm_batch_size)
+                    ]
+
+                    all_verification_results = await asyncio.gather(
+                        *[_verify_batch(b) for b in llm_batches]
+                    )
+
+                    result_by_row_index = {r.row_index: r for r in needs_verify}
+
+                    for vr_batch in all_verification_results:
+                        for vr in vr_batch:
+                            job_result = result_by_row_index.get(vr.row_index)
+                            if job_result is None:
+                                continue
+                            job_result.verification_confidence = vr.confidence
+                            if vr.match and vr.confidence >= 0.7:
+                                job_result.status = "verified"
+                            elif vr.suggested_domain:
+                                job_result.raw_domain = vr.suggested_domain
+                                job_result.status = "verified"
+                            else:
+                                job_result.raw_domain = None
+                                job_result.status = "not_found"
+                                logger.info(
+                                    "Verify rejected domain for row %d: %s",
+                                    vr.row_index, vr.reason,
+                                )
+
+                    await db.commit()
+
+                total_verified += len(batch_results)
+                progress["verify"] = total_verified
+                await update_job_progress(db, job_id, "verify", total_verified, total_rows)
+
+                await queue_out.put(result_ids)
+
+    except Exception as exc:
+        logger.exception("phase_verify_worker failed: %s", exc)
+        error_event.set()
+        raise
+    finally:
+        await queue_out.put(None)
+
+
 async def _phase_crawl_worker(
     job_id: uuid.UUID,
     total_rows: int,
@@ -163,7 +295,7 @@ async def _phase_crawl_worker(
     progress: dict[str, int],
     scraped_data: dict[str, dict[str, str]],
 ) -> None:
-    """Phase 2: Crawl company websites using Scrape.do."""
+    """Phase 3: Crawl company websites using Scrape.do."""
     options = config.get("options", {})
 
     try:
@@ -242,7 +374,7 @@ async def _phase_extract_worker(
     progress: dict[str, int],
     scraped_data: dict[str, dict[str, str]],
 ) -> None:
-    """Phase 3: Extract structured intel from scraped content using LLM."""
+    """Phase 4: Extract structured intel from scraped content using LLM."""
     options = config.get("options", {})
     needs_llm = any(options.get(k) for k in ("industry_description", "target_market", "company_people"))
 
@@ -298,7 +430,10 @@ async def _phase_extract_worker(
                                 existing.update(intel)
                                 r.extracted_data = existing
                                 r.normalized_domain = r.raw_domain
-                                r.status = "extracted"
+                                if _has_meaningful_intel(r.extracted_data):
+                                    r.status = "extracted"
+                                else:
+                                    r.status = "extract_failed"
 
                         # Commit after each sub-batch to keep DB connection alive
                         await db.commit()
@@ -307,12 +442,12 @@ async def _phase_extract_worker(
                     for domain in domain_to_results:
                         scraped_data.pop(domain, None)
 
-                    # Mark remaining rows
+                    # Mark remaining rows that didn't go through LLM
                     for r in batch_results:
-                        if r.status not in ("extracted", "not_found"):
+                        if r.status not in ("extracted", "extract_failed", "not_found", "scrape_failed"):
                             if r.raw_domain:
                                 r.normalized_domain = r.raw_domain
-                                r.status = "extracted"
+                                r.status = "extract_failed"
                             else:
                                 r.status = "not_found"
                 else:
@@ -346,7 +481,7 @@ async def _phase_enrich_worker(
     progress: dict[str, int],
     completion_event: asyncio.Event,
 ) -> None:
-    """Phase 4: Enrich contacts via QuickEnrich API (optional)."""
+    """Phase 5: Enrich contacts via QuickEnrich API (optional)."""
     options = config.get("options", {})
     enrich_people = options.get("company_people", False)
     quickenrich_api_key = config.get("quickenrich_api_key") or None
@@ -416,7 +551,7 @@ async def _phase_enrich_worker(
 
 
 async def _phase_deliver(job_id: uuid.UUID) -> None:
-    """Phase 5: Send results email to the user."""
+    """Phase 6: Send results email to the user."""
     async with AsyncSessionLocal() as db:
         job_result = await db.execute(select(Job).where(Job.id == job_id))
         job = job_result.scalar_one()
@@ -466,7 +601,7 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
 
 
 async def run_intel_pipeline(ctx: dict, job_id: str) -> None:
-    """Main ARQ entry point for company intel extraction pipeline."""
+    """Main entry point for company intel extraction pipeline."""
     parsed_job_id = uuid.UUID(job_id)
 
     async with AsyncSessionLocal() as db:
@@ -479,23 +614,29 @@ async def run_intel_pipeline(ctx: dict, job_id: str) -> None:
         job.started_at = datetime.now(timezone.utc)
         await db.commit()
 
-    queue_rc: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=5)
+    # Queues: resolve → verify → crawl → extract → enrich
+    queue_rv: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=5)
+    queue_vc: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=5)
     queue_ce: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=5)
     queue_en: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=5)
 
     error_event = asyncio.Event()
     completion_event = asyncio.Event()
-    progress = {"resolve": 0, "crawl": 0, "extract": 0, "enrich": 0}
+    progress = {"resolve": 0, "verify": 0, "crawl": 0, "extract": 0, "enrich": 0}
 
     scraped_data: dict[str, dict[str, str]] = {}
 
     tasks = [
         asyncio.create_task(
-            _phase_resolve_worker(parsed_job_id, total_rows, config, queue_rc, error_event, progress),
+            _phase_resolve_worker(parsed_job_id, total_rows, config, queue_rv, error_event, progress),
             name="phase_resolve",
         ),
         asyncio.create_task(
-            _phase_crawl_worker(parsed_job_id, total_rows, config, queue_rc, queue_ce, error_event, progress, scraped_data),
+            _phase_verify_worker(parsed_job_id, total_rows, queue_rv, queue_vc, error_event, progress),
+            name="phase_verify",
+        ),
+        asyncio.create_task(
+            _phase_crawl_worker(parsed_job_id, total_rows, config, queue_vc, queue_ce, error_event, progress, scraped_data),
             name="phase_crawl",
         ),
         asyncio.create_task(
