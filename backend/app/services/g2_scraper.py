@@ -302,12 +302,11 @@ async def discover_g2_category(
     queries = [
         f'site:g2.com/products "{category_name}"',
         f'site:g2.com/products {category_name} software reviews',
+        f'site:g2.com/products best {category_name} tools',
+        f'site:g2.com/products {category_name} alternatives',
+        f'site:g2.com/products top {category_name} software 2025 2026',
+        f'g2.com/products {category_name}',
     ]
-
-    # For larger requests, add more query variations
-    if max_products > 50:
-        queries.append(f'site:g2.com/products best {category_name} tools')
-        queries.append(f'g2.com/products {category_name} 2025 2026')
 
     all_products: list[dict] = []
     seen_slugs: set[str] = set()
@@ -316,9 +315,9 @@ async def discover_g2_category(
         try:
             if semaphore:
                 async with semaphore:
-                    results = await _serper_search(client, query, num=30)
+                    results = await _serper_search(client, query, num=100)
             else:
-                results = await _serper_search(client, query, num=30)
+                results = await _serper_search(client, query, num=100)
 
             products = _parse_g2_products_from_results(results)
             for p in products:
