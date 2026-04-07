@@ -1,4 +1,4 @@
-"""ARQ worker — queue-based pipelined processing pipeline.
+"""Queue-based pipelined processing pipeline (P2).
 
 Phases run concurrently via asyncio.Queue. Each phase has its own DB
 session. Queues pass lists of JobResult primary keys (UUIDs) between
@@ -10,7 +10,6 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from arq.connections import RedisSettings
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -529,22 +528,3 @@ async def run_pipeline(ctx: dict[str, object], job_id: str) -> None:
         raise
 
 
-def _parse_redis_settings(redis_url: str) -> RedisSettings:
-    """Parse a redis:// or rediss:// URL into an arq RedisSettings instance."""
-    from urllib.parse import urlparse
-
-    parsed = urlparse(redis_url)
-    host = parsed.hostname or "localhost"
-    port = parsed.port or 6379
-    password = parsed.password or None
-    db_index = int(parsed.path.lstrip("/")) if parsed.path and parsed.path != "/" else 0
-    use_ssl = parsed.scheme == "rediss"
-
-    return RedisSettings(host=host, port=port, password=password, database=db_index, ssl=use_ssl)
-
-
-class WorkerSettings:
-    functions = [run_pipeline]
-    redis_settings = _parse_redis_settings(settings.redis_url)
-    max_jobs = 5
-    job_timeout = 7200

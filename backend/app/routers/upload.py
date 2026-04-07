@@ -1,10 +1,10 @@
+import asyncio
 import csv
 import io
+import logging
 import uuid
 from collections.abc import Generator
 
-from arq import create_pool
-from arq.connections import RedisSettings
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -135,14 +135,17 @@ async def upload_csv(
     db.add_all(job_results)
     await db.flush()
 
-    # --- dispatch to ARQ worker ---
-    from app.workers.pipeline import _parse_redis_settings
-    redis_settings = _parse_redis_settings(settings.redis_url)
-    redis_pool = await create_pool(redis_settings)
-    try:
-        await redis_pool.enqueue_job("run_pipeline", str(job.id))
-    finally:
-        await redis_pool.aclose()
+    # --- dispatch pipeline ---
+    from app.workers.pipeline import run_pipeline
+
+    logger = logging.getLogger(__name__)
+
+    def _on_done(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("Pipeline failed for job %s: %s", job.id, t.exception())
+
+    task = asyncio.create_task(run_pipeline({}, str(job.id)))
+    task.add_done_callback(_on_done)
 
     # --- return response ---
     new_token = create_token(email, str(job.id))
