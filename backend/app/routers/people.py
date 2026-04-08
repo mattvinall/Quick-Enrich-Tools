@@ -1,7 +1,9 @@
 """API endpoints for the People Intel by Name tool."""
 
+import asyncio
 import csv
 import io
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -17,6 +19,8 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/people", tags=["people"])
 
@@ -114,10 +118,15 @@ async def submit_people_extraction(
     db.add_all(job_results)
     await db.flush()
 
-    # Run pipeline as background task (bypass ARQ — Upstash incompatibility)
-    import asyncio
+    # Run pipeline as background task
     from app.workers.people_pipeline import run_people_pipeline
-    asyncio.create_task(run_people_pipeline({}, str(job.id)))
+
+    def _on_done(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("People pipeline failed for job %s: %s", job.id, t.exception())
+
+    task = asyncio.create_task(run_people_pipeline({}, str(job.id)))
+    task.add_done_callback(_on_done)
 
     new_token = create_token(email, str(job.id))
     return {
@@ -134,13 +143,20 @@ _BASE_COLUMNS = ["full_name", "company_name", "linkedin_url", "linkedin_confiden
 _CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
 
 
+def _sanitize_csv(value: str) -> str:
+    """Prevent CSV injection by prefixing formula-triggering characters."""
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5) -> list[str]:
     input_data = result.input_data or {}
     extracted = result.extracted_data or {}
     search = result.search_results or {}
 
-    full_name = input_data.get("full_name", "")
-    company_name = input_data.get("company_name", "")
+    full_name = _sanitize_csv(input_data.get("full_name", ""))
+    company_name = _sanitize_csv(input_data.get("company_name", ""))
     linkedin_url = search.get("linkedin_url", "") if isinstance(search, dict) else ""
     confidence = search.get("confidence", "") if isinstance(search, dict) else ""
     confidence_str = str(confidence) if confidence != "" else ""
@@ -164,12 +180,6 @@ def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5)
         case_studies = extracted.get("case_studies") or []
         intel_cells.append(", ".join(case_studies) if isinstance(case_studies, list) else str(case_studies))
 
-    if options.get("company_people"):
-        generic_emails = extracted.get("general_emails") or []
-        if not isinstance(generic_emails, list):
-            generic_emails = []
-        intel_cells.append(", ".join(generic_emails))
-
     if options.get("homepage_raw_text"):
         intel_cells.append(str(extracted.get("homepage_raw_text") or ""))
 
@@ -181,10 +191,10 @@ def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5)
     contact_cells: list[str] = []
     for idx in range(max_contacts):
         contact = all_contacts[idx] if idx < len(all_contacts) else {}
-        contact_cells.append(contact.get("title", ""))
-        contact_cells.append(contact.get("first_name", ""))
-        contact_cells.append(contact.get("last_name", ""))
-        contact_cells.append(contact.get("email", ""))
+        contact_cells.append(_sanitize_csv(contact.get("title", "")))
+        contact_cells.append(_sanitize_csv(contact.get("first_name", "")))
+        contact_cells.append(_sanitize_csv(contact.get("last_name", "")))
+        contact_cells.append(_sanitize_csv(contact.get("email", "")))
         contact_cells.append(contact.get("phone", ""))
         contact_cells.append(contact.get("linkedin_url", ""))
 
@@ -195,13 +205,10 @@ def _build_people_headers(options: dict, max_contacts: int = 5) -> list[str]:
     headers = list(_BASE_COLUMNS)
 
     if options.get("industry_description"):
-        headers.extend(["industry", "niche", "description", "address", "phone", "general_emails"])
+        headers.extend(["industry", "niche", "description", "address", "company_phone", "general_emails"])
 
     if options.get("target_market"):
         headers.extend(["target_market", "case_studies"])
-
-    if options.get("company_people"):
-        headers.append("generic_emails")
 
     if options.get("homepage_raw_text"):
         headers.append("homepage_raw_text")
