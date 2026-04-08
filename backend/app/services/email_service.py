@@ -134,7 +134,7 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
     last_exc = None
     for attempt in range(_MAX_RETRIES):
         try:
-            resend.Emails.send(params)
+            await asyncio.to_thread(resend.Emails.send, params)
             logger.info("Results email sent to %s (found=%d total=%d)", to_email, found, total)
             return
         except Exception as exc:

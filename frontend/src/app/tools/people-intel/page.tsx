@@ -441,6 +441,9 @@ export default function PeopleIntelPage() {
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}
                     onMaxContactsChange={setMaxContacts}
+                    hasCompanyNames={true}
+                    serperApiKey={serperApiKey}
+                    onSerperApiKeyChange={setSerperApiKey}
                   />
 
                   <div className="flex gap-3 pt-2">

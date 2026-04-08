@@ -126,9 +126,11 @@ async def batch_search(
     key_to_result: dict[str, dict[str, object] | None] = {}
     for outcome in raw_outcomes:
         if isinstance(outcome, BaseException):
+            logger.warning("batch_search error: %s", outcome)
             continue
         dedup_key, value = outcome
         if isinstance(value, BaseException):
+            logger.warning("Serper search failed for '%s': %s", dedup_key, value)
             key_to_result[dedup_key] = None
         else:
             key_to_result[dedup_key] = value
