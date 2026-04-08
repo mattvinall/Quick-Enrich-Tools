@@ -230,9 +230,13 @@ async def discover_g2_category_via_scrape(
         try:
             if semaphore:
                 async with semaphore:
-                    html = await scrape_page(client, url, render=True)
+                    html = await scrape_page(
+                        client, url, render=True, super_proxy=True, block_resources=False,
+                    )
             else:
-                html = await scrape_page(client, url, render=True)
+                html = await scrape_page(
+                    client, url, render=True, super_proxy=True, block_resources=False,
+                )
         except Exception as exc:
             logger.warning("G2 scrape.do failed for %s page %d: %s", category_slug, page, exc)
             if page == 1:
