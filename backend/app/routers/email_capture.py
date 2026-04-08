@@ -1,6 +1,7 @@
+import re
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -11,6 +12,8 @@ from app.models import EmailCapture
 from app.services.rate_limiter import check_rate_limit
 
 router = APIRouter(tags=["email-capture"])
+
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
 class EmailCaptureRequest(BaseModel):
@@ -31,6 +34,12 @@ async def capture_email(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> EmailCaptureResponse:
+    if not _EMAIL_RE.match(body.email):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid email address.",
+        )
+
     ip_address: str = request.client.host if request.client else "unknown"
 
     await check_rate_limit(db, ip_address, "ip", "email_capture")

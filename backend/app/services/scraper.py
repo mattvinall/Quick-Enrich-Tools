@@ -121,6 +121,9 @@ async def scrape_page(
         block_resources: Block CSS/images/fonts (default True). Set False for
             sites that detect missing resources as bot behavior.
     """
+    if not _is_safe_url(url):
+        raise ValueError(f"URL blocked by SSRF protection: {url}")
+
     if settings.scrape_do_api_key:
         # scrape.do API — handles anti-bot, residential proxies, optional JS rendering
         encoded_url = quote(url, safe="")
@@ -146,10 +149,6 @@ async def scrape_page(
         )
         response.raise_for_status()
         return response.text
-
-    # SSRF check for direct fetches (user-provided URLs)
-    if not _is_safe_url(url):
-        raise ValueError(f"URL blocked by SSRF protection: {url}")
 
     # Direct fetch fallback (free, works for most company sites)
     response = await retry_async(
