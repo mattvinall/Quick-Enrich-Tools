@@ -38,6 +38,24 @@ def _build_field_instructions(options: dict) -> str:
     return "\n".join(f"  - {f}" for f in fields)
 
 
+def _build_rules(options: dict) -> str:
+    """Build conditional rule lines based on which fields are requested."""
+    rules: list[str] = []
+
+    if options.get("industry_description"):
+        rules.append('- For "description": Write a ~600 word professional description of the company based on the content. Focus on what they do, who they serve, and their value proposition.')
+        rules.append('- For "address": Extract the full mailing/office address if found.')
+        rules.append('- For "phone": Extract the main company phone number if found.')
+
+    if options.get("target_market"):
+        rules.append('- For "case_studies": Extract company/organization names mentioned as clients or in case studies/testimonials. Return as a flat list of strings.')
+
+    if options.get("company_people"):
+        rules.append('- For "website_contacts": Extract names and titles of people mentioned on the website (team page, about page, etc.). Each entry should have "name" (string) and "title" (string).')
+
+    return "\n".join(rules) + "\n" if rules else ""
+
+
 def _build_prompt(domain: str, scraped_pages: dict[str, str], options: dict) -> str:
     """Build the full extraction prompt for the LLM."""
     page_urls = list(scraped_pages.keys())
@@ -61,12 +79,7 @@ Extract the following fields into a JSON object:
 
 Rules:
 - Only include information you can directly find or confidently infer from the provided text.
-- For "description": Write a ~600 word professional description of the company based on the content. Focus on what they do, who they serve, and their value proposition.
-- For "case_studies": Extract company/organization names mentioned as clients or in case studies/testimonials. Return as a flat list of strings.
-- For "address": Extract the full mailing/office address if found.
-- For "phone": Extract the main company phone number if found.
-- For "website_contacts": Extract names and titles of people mentioned on the website (team page, about page, etc.). Each entry should have "name" (string) and "title" (string).
-- If a data point is not found in the content, set it to null (or empty list for list fields).
+{_build_rules(options)}- If a data point is not found in the content, set it to null (or empty list for list fields).
 - Return ONLY valid JSON. No markdown, no explanation, just the JSON object."""
 
 

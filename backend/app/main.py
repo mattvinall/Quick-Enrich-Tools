@@ -26,11 +26,9 @@ from app.routers import people
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.jwt_secret == "change-me":
-        import warnings
-        warnings.warn(
+        raise RuntimeError(
             "JWT_SECRET is set to the default 'change-me'. "
-            "Set a strong secret in production!",
-            stacklevel=2,
+            "Set a strong secret via the JWT_SECRET environment variable."
         )
 
     yield

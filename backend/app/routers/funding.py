@@ -44,6 +44,14 @@ def _check_discover_rate_limit(client_ip: str) -> None:
     timestamps.append(now)
     _discover_rate[client_ip] = timestamps
 
+    # Prune stale IPs to prevent unbounded growth
+    stale_keys = [
+        k for k, v in _discover_rate.items()
+        if all(t < now - _DISCOVER_WINDOW_SECONDS for t in v)
+    ]
+    for k in stale_keys:
+        del _discover_rate[k]
+
 
 # ── Request / Response Models ────────────────────────────────────────
 
