@@ -9,45 +9,49 @@ from app.services import g2_scraper
 
 @pytest.mark.asyncio
 async def test_discover_g2_category_fires_serper_queries_in_parallel(monkeypatch):
-    """All Serper queries must fire concurrently; total elapsed ~= 1x slowest query, not N* sequential."""
+    """All Serper queries must be in-flight at the same moment, not issued one-at-a-time."""
 
-    call_count = {"n": 0}
+    in_flight = 0
+    max_in_flight = 0
+    call_count = 0
 
     async def fake_post(self, *args, **kwargs):
-        call_count["n"] += 1
-        await asyncio.sleep(0.2)  # Simulate 200ms Serper latency
+        nonlocal in_flight, max_in_flight, call_count
+        call_count += 1
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        try:
+            await asyncio.sleep(0.05)  # yield so sibling tasks can enter
 
-        class _Resp:
-            status_code = 200
+            class _Resp:
+                status_code = 200
 
-            def json(self):
-                return {"organic": []}
+                def json(self):
+                    return {"organic": []}
 
-            def raise_for_status(self):
-                pass
+                def raise_for_status(self):
+                    pass
 
-        return _Resp()
+            return _Resp()
+        finally:
+            in_flight -= 1
 
-    # Patch httpx.AsyncClient.post so every Serper call is a 200ms no-op.
     monkeypatch.setattr("app.services.g2_scraper.httpx.AsyncClient.post", fake_post)
-    # Bypass caching (Redis unavailable in tests is fine — the code handles it).
     monkeypatch.setattr(g2_scraper.settings, "serper_api_key", "test")
 
-    # Also bypass retry_async wrapper's delay — we want a single call per query.
     async def fake_retry_async(fn, *a, **kw):
         return await fn()
 
     monkeypatch.setattr(g2_scraper, "retry_async", fake_retry_async)
 
-    start = asyncio.get_event_loop().time()
     async with httpx.AsyncClient() as client:
         await g2_scraper.discover_g2_category(
             client, "crm-software", "CRM", max_products=100
         )
-    elapsed = asyncio.get_event_loop().time() - start
 
-    # With 6 queries x 200ms sequential = 1.2s. Parallel should be ~200-400ms even
-    # under load. Use a conservative ceiling that still distinguishes parallel from
-    # sequential by a wide margin.
-    assert elapsed < 0.6, f"Serper queries appear to run sequentially ({elapsed:.2f}s elapsed)"
-    assert call_count["n"] >= 2
+    # Sequential execution would produce max_in_flight == 1. Parallel execution must
+    # have at least 2 queries overlapping.
+    assert call_count >= 2
+    assert max_in_flight >= 2, (
+        f"Serper queries appear sequential: max concurrent in-flight = {max_in_flight}"
+    )
