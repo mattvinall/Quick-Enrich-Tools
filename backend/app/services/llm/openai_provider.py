@@ -51,8 +51,9 @@ def _fallback(batch: list[dict]) -> list[VerificationResult]:
             row_index=item["row_index"],
             match=False,
             confidence=0.0,
-            reason="LLM response could not be parsed.",
+            reason="LLM call failed or response could not be parsed.",
             suggested_domain=None,
+            errored=True,
         )
         for item in batch
     ]

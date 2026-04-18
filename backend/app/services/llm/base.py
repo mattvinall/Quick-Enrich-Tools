@@ -8,7 +8,8 @@ class VerificationResult:
     match: bool
     confidence: float
     reason: str
-    suggested_domain: str | None
+    suggested_domain: str | None = None
+    errored: bool = False  # True iff the LLM call/parse failed; callers may requeue
 
 
 class BaseLLMProvider(ABC):
