@@ -17,7 +17,12 @@ logger = logging.getLogger(__name__)
 _FUNDING_QUERIES = [
     'startup "raises" funding',
     '"Series A" OR "Series B" OR "Series C" funding round',
+    '"Series D" OR "Series E" OR "Series F" funding round',
     '"seed round" OR "pre-seed" startup funding',
+    'startup "closes" funding round',
+    '"growth equity" OR "growth round" startup',
+    '"venture debt" OR "bridge round" startup',
+    'startup "raised from" investors',
 ]
 
 _EXTRACTION_SYSTEM = (
@@ -46,22 +51,26 @@ _BATCH_SIZE = 15
 
 
 async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
-    """Run 3 Serper /news queries in parallel, merge and dedup by URL."""
-    tbs = "qdr:d" if hours <= 24 else "qdr:2d"
+    """Run Serper /news queries (paginated) in parallel, merge and dedup by URL."""
+    tbs = "qdr:d" if hours <= 24 else ("qdr:2d" if hours <= 48 else "qdr:w")
+    page_cap = getattr(settings, "funding_news_pages_per_query", 3)
     semaphore = asyncio.Semaphore(settings.serper_concurrency)
 
     async with httpx.AsyncClient() as client:
 
-        async def _query(q: str) -> list[dict[str, str]]:
+        async def _query_page(q: str, page: int) -> list[dict[str, str]]:
+            body: dict[str, object] = {"q": q, "num": 100, "tbs": tbs}
+            if page > 1:
+                body["page"] = page
             async with semaphore:
                 response = await retry_async(
-                    lambda query=q: client.post(
+                    lambda b=body: client.post(
                         "https://google.serper.dev/news",
                         headers={
                             "X-API-KEY": settings.serper_api_key,
                             "Content-Type": "application/json",
                         },
-                        json={"q": query, "num": 100, "tbs": tbs},
+                        json=b,
                         timeout=15.0,
                     ),
                     max_retries=3,
@@ -70,19 +79,25 @@ async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
                 response.raise_for_status()
                 data = response.json()
                 news = data.get("news", [])
-                logger.info("FUNDING SEARCH: '%s' → %d articles", q, len(news))
+                logger.info(
+                    "FUNDING SEARCH: '%s' page=%d → %d articles",
+                    q, page, len(news),
+                )
                 return news
 
-        results = await asyncio.gather(
-            *[_query(q) for q in _FUNDING_QUERIES],
-            return_exceptions=True,
-        )
+        tasks = [
+            _query_page(q, p)
+            for q in _FUNDING_QUERIES
+            for p in range(1, page_cap + 1)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Merge and dedup by link
     seen_urls: set[str] = set()
     articles: list[dict[str, str]] = []
+    failed = 0
     for result in results:
         if isinstance(result, BaseException):
+            failed += 1
             logger.warning(
                 "Funding news query failed: %s: %s",
                 type(result).__name__, result,
@@ -100,12 +115,19 @@ async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
                     "date": article.get("date", ""),
                 })
 
-    logger.info("Funding news: fetched %d unique articles from %d queries", len(articles), len(_FUNDING_QUERIES))
+    logger.info(
+        "Funding news: %d unique articles from %d queries × %d pages (%d failures)",
+        len(articles), len(_FUNDING_QUERIES), page_cap, failed,
+    )
     return articles
 
 
 async def _extract_funding_data(articles: list[dict[str, str]]) -> list[dict[str, object]]:
-    """Use Gemini to extract structured funding data from news articles."""
+    """Use Gemini to extract structured funding data from news articles.
+
+    Failed batches get ONE retry before being dropped; surviving articles are
+    logged so operators can see partial coverage.
+    """
     if not articles:
         return []
 
@@ -113,6 +135,24 @@ async def _extract_funding_data(articles: list[dict[str, str]]) -> list[dict[str
     model = genai.GenerativeModel("gemini-2.5-flash")
 
     all_extracted: list[dict[str, object]] = []
+    dropped_batches = 0
+
+    async def _call_once(prompt: str) -> str:
+        response = await retry_async(
+            lambda p=prompt: asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: model.generate_content(
+                    [_EXTRACTION_SYSTEM, p],
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                    ),
+                ),
+            ),
+            max_retries=3,
+            base_delay=1.0,
+        )
+        return response.text.strip()
 
     for batch_start in range(0, len(articles), _BATCH_SIZE):
         batch = articles[batch_start:batch_start + _BATCH_SIZE]
@@ -121,53 +161,72 @@ async def _extract_funding_data(articles: list[dict[str, str]]) -> list[dict[str
             f'- item_index={batch_start + i} | headline="{a["title"]}" | snippet="{a["snippet"]}"'
             for i, a in enumerate(batch)
         )
-
         prompt = _EXTRACTION_PROMPT.format(items=items_text)
 
-        try:
-            response = await retry_async(
-                lambda p=prompt: asyncio.get_running_loop().run_in_executor(
-                    None,
-                    lambda: model.generate_content(
-                        [_EXTRACTION_SYSTEM, p],
-                        generation_config=genai.GenerationConfig(
-                            response_mime_type="application/json",
-                            temperature=0.1,
-                        ),
-                    ),
-                ),
-                max_retries=3,
-                base_delay=1.0,
-            )
-            text = response.text.strip()
-            parsed = json.loads(text)
-            if isinstance(parsed, list):
-                all_extracted.extend(parsed)
-            else:
-                logger.warning("Gemini returned non-list for funding extraction")
-        except Exception as exc:
-            logger.warning(
-                "Funding extraction batch failed: %s: %s",
-                type(exc).__name__, exc,
+        text: str | None = None
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                text = await _call_once(prompt)
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Funding extraction batch %d attempt %d failed: %s: %s",
+                    batch_start, attempt + 1, type(exc).__name__, exc,
+                )
+
+        if text is None:
+            dropped_batches += 1
+            logger.error(
+                "Funding extraction batch %d DROPPED after 2 attempts: %s",
+                batch_start, last_exc,
             )
             continue
+
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, ValueError) as exc:
+            dropped_batches += 1
+            logger.error(
+                "Funding extraction batch %d JSON parse failed: %s",
+                batch_start, exc,
+            )
+            continue
+
+        if isinstance(parsed, list):
+            all_extracted.extend(parsed)
+        else:
+            logger.warning("Gemini returned non-list for funding extraction")
+
+    if dropped_batches:
+        logger.warning(
+            "Funding extraction: %d/%d batches dropped",
+            dropped_batches, (len(articles) + _BATCH_SIZE - 1) // _BATCH_SIZE,
+        )
 
     return all_extracted
 
 
 def _deduplicate_companies(entries: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Deduplicate by company name (case-insensitive), keep richest entry."""
-    seen: dict[str, dict[str, object]] = {}
+    """Deduplicate by (company_name, funding_round, source_url).
+
+    A single company can appear multiple times legitimately (different rounds,
+    different sources). Only collapse exact triplets. When the triplet collides,
+    keep the richer (more populated) entry.
+    """
+    seen: dict[tuple[str, str, str], dict[str, object]] = {}
     for entry in entries:
-        name = str(entry.get("company_name", "")).strip()
+        name = str(entry.get("company_name", "")).strip().lower()
         if not name:
             continue
-        key = name.lower()
+        round_ = str(entry.get("funding_round", "")).strip().lower()
+        url = str(entry.get("source_url", "")).strip().lower()
+        key = (name, round_, url)
         existing = seen.get(key)
         if existing is None:
             seen[key] = entry
         else:
-            # Keep the one with more fields populated
             existing_score = sum(1 for v in existing.values() if v)
             new_score = sum(1 for v in entry.values() if v)
             if new_score > existing_score:
