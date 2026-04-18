@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     intel_extraction_concurrency: int = 10
     cache_ttl_days: int = 7
     g2_scrape_concurrency: int = 5
-    g2_max_pages_per_category: int = 10
+    g2_max_pages_per_category: int = 25
     g2_max_total_companies: int = 50_000
     g2_cache_ttl_days: int = 3
     linkedin_search_concurrency: int = 50
