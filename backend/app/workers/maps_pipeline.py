@@ -61,12 +61,33 @@ async def run_maps_pipeline(ctx: dict, job_id: str) -> None:
             await db.commit()
         raise
 
+    # Diagnostic: count places per search term+location
+    per_search_counts: dict[tuple[str, str], int] = {}
+    for p in places:
+        key = (str(p.get("search_term", "")), str(p.get("location", "")))
+        per_search_counts[key] = per_search_counts.get(key, 0) + 1
+    empty_searches = [
+        f"{s['search_term']} in {s['location']}"
+        for s in searches
+        if per_search_counts.get((s["search_term"], s["location"]), 0) == 0
+    ]
+    if empty_searches:
+        logger.warning(
+            "Maps job_id=%s: %d/%d searches returned zero places: %s",
+            job_id, len(empty_searches), len(searches),
+            ", ".join(empty_searches[:10]) + ("..." if len(empty_searches) > 10 else ""),
+        )
+
     if not places:
         async with AsyncSessionLocal() as db:
             job_result = await db.execute(select(Job).where(Job.id == parsed_job_id))
             job = job_result.scalar_one()
             job.status = "failed"
-            job.error_message = "No businesses found for the given search terms and location."
+            job.error_message = (
+                f"No businesses found for any of the {len(searches)} "
+                f"search term/location combinations. Try broader search terms "
+                f"or check that the location is a recognizable place."
+            )
             await db.commit()
         return
 
