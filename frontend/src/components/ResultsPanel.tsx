@@ -117,6 +117,7 @@ export default function ResultsPanel({
 }: ResultsPanelProps) {
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [showClay, setShowClay] = useState(false);
 
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
@@ -149,10 +150,16 @@ export default function ResultsPanel({
   useEffect(() => {
     async function fetchRows() {
       try {
-        const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}/preview?limit=1000`, {
+        setPreviewError(null);
+        const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}/preview?limit=5000`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setPreviewError(
+            `Failed to load preview rows (HTTP ${res.status}). The download link below still works.`,
+          );
+          return;
+        }
         const data = (await res.json()) as PreviewResponse;
         // Flatten contacts array into display fields
         const mapped = (data.rows ?? []).map((row) => {
@@ -172,8 +179,11 @@ export default function ResultsPanel({
           };
         });
         setRows(mapped);
-      } catch {
-        // silently fail — download link still works
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setPreviewError(
+          `Failed to load preview rows: ${message}. The download link below still works.`,
+        );
       } finally {
         setLoading(false);
       }
@@ -354,6 +364,11 @@ export default function ResultsPanel({
         animate="visible"
         className="space-y-3"
       >
+        {previewError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {previewError}
+          </div>
+        )}
         {/* Filter + search row */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           {/* Tabs */}

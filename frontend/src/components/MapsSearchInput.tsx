@@ -24,8 +24,8 @@ interface MapsSearchInputProps {
   onCsvSearchesChange: (searches: MapsSearchItem[]) => void;
 }
 
-// Capped at 20 until Serper /maps pagination is verified at runtime.
-const MAX_OPTIONS = [20];
+// Backend now paginates /maps; safe to request up to 100 per term.
+const MAX_OPTIONS = [20, 50, 100];
 
 export default function MapsSearchInput({
   searchTerms,

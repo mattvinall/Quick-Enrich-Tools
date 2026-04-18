@@ -95,6 +95,7 @@ const listVariants = {
 export default function LivePreview({ jobId, token, isProcessing }: LivePreviewProps) {
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [isDone, setIsDone] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Track which row indices have already been animated
   const seenIndicesRef = useRef<Set<number>>(new Set());
@@ -103,11 +104,17 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
     async function fetchPreview() {
       try {
         const res = await fetch(
-          `${API_URL}/api/v1/jobs/${jobId}/preview?limit=50`,
+          `${API_URL}/api/v1/jobs/${jobId}/preview?limit=200`,
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          setPreviewError(
+            `Failed to load live preview (HTTP ${res.status}).`,
+          );
+          return;
+        }
 
+        setPreviewError(null);
         const data: ApiPreviewResponse = await res.json();
         setRows(data.rows ?? []);
 
@@ -118,8 +125,9 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
             intervalRef.current = null;
           }
         }
-      } catch {
-        // network error — keep polling
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setPreviewError(`Failed to load live preview: ${message}`);
       }
     }
 
@@ -180,6 +188,11 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
       </CardHeader>
 
       <CardContent className="p-0">
+        {previewError && (
+          <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
+            {previewError}
+          </div>
+        )}
         {rows.length === 0 ? (
           /* Empty state */
           <motion.div
