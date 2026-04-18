@@ -16,11 +16,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_token, verify_token
 from app.config import settings
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.models import Job, JobResult
 
 router = APIRouter(prefix="/maps", tags=["maps"])
 logger = logging.getLogger(__name__)
+
+
+async def _mark_job_failed_on_error(job_id: uuid.UUID, exc: BaseException) -> None:
+    """Set Job.status='failed' and record the error so the UI can surface it."""
+    try:
+        async with AsyncSessionLocal() as db:
+            job_result = await db.execute(select(Job).where(Job.id == job_id))
+            job = job_result.scalar_one()
+            job.status = "failed"
+            job.error_message = f"Pipeline crashed: {type(exc).__name__}: {exc}"
+            await db.commit()
+    except Exception as inner:
+        logger.error(
+            "Failed to mark job %s as failed after pipeline error: %s",
+            job_id, inner,
+        )
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -134,8 +150,12 @@ async def submit_maps_extraction(
     from app.workers.maps_pipeline import run_maps_pipeline
 
     def _on_done(t: asyncio.Task) -> None:
-        if not t.cancelled() and t.exception():
-            logger.error("Pipeline failed for job %s: %s", job.id, t.exception())
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.error("Pipeline failed for job %s: %s", job.id, exc)
+            asyncio.create_task(_mark_job_failed_on_error(job.id, exc))
 
     task = asyncio.create_task(run_maps_pipeline({}, str(job.id)))
     task.add_done_callback(_on_done)
