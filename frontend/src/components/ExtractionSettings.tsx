@@ -171,7 +171,8 @@ export default function ExtractionSettings({
               </a>
             </div>
             <input
-              type="text"
+              type="password"
+              autoComplete="off"
               value={quickenrichApiKey}
               onChange={(e) => onQuickenrichApiKeyChange(e.target.value)}
               placeholder="qe_..."
@@ -300,7 +301,8 @@ export default function ExtractionSettings({
             </a>
           </div>
           <input
-            type="text"
+            type="password"
+            autoComplete="off"
             value={serperApiKey}
             onChange={(e) => onSerperApiKeyChange?.(e.target.value)}
             placeholder="Your Serper API key"
