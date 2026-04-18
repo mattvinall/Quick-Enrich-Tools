@@ -321,32 +321,45 @@ async def discover_g2_category(
         f'g2.com/products {category_name}',
     ]
 
-    all_products: list[dict] = []
-    seen_slugs: set[str] = set()
+    async def _run_query(query: str) -> tuple[str, list[dict]]:
+        """Run a single Serper query and return (query, organic_results).
 
-    for query in queries:
+        Swallows exceptions so one failing query does not sink the gather.
+        """
         try:
             if semaphore:
                 async with semaphore:
                     results = await _serper_search(client, query, num=100)
             else:
                 results = await _serper_search(client, query, num=100)
-
-            products = _parse_g2_products_from_results(results)
-            for p in products:
-                slug = _extract_product_slug(p["g2_url"])
-                if slug not in seen_slugs:
-                    seen_slugs.add(slug)
-                    all_products.append(p)
-
-            logger.info("G2 SEARCH: '%s' → %d new products (total: %d)", query, len(products), len(all_products))
-
-            if len(all_products) >= max_products:
-                break
-
+            return query, results
         except Exception as exc:
             logger.warning("G2 Serper search failed for '%s': %s", query, exc)
-            continue
+            return query, []
+
+    # Fire all Serper queries concurrently — coverage queries are independent,
+    # so running them in parallel cuts fallback latency by ~5-6x.
+    query_results = await asyncio.gather(*[_run_query(q) for q in queries])
+
+    all_products: list[dict] = []
+    seen_slugs: set[str] = set()
+
+    for query, results in query_results:
+        products = _parse_g2_products_from_results(results)
+        new_count = 0
+        for p in products:
+            slug = _extract_product_slug(p["g2_url"])
+            if slug and slug not in seen_slugs:
+                seen_slugs.add(slug)
+                all_products.append(p)
+                new_count += 1
+                if len(all_products) >= max_products:
+                    break
+
+        logger.info("G2 SEARCH: '%s' → %d new products (total: %d)", query, new_count, len(all_products))
+
+        if len(all_products) >= max_products:
+            break
 
     result = all_products[:max_products]
 
