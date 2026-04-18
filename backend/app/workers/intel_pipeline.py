@@ -69,6 +69,20 @@ def _has_meaningful_intel(extracted_data: dict) -> bool:
     return False
 
 
+def _count_enriched_in_batch(batch_results) -> int:
+    """Count rows in a post-commit enrich batch whose status is 'enriched'.
+
+    The enrich phase only sets ``status = 'enriched'`` when QuickEnrich
+    actually returned contacts for a row's domain. Rows that skip
+    enrichment (no API key, no job_titles, no normalized_domain, or no
+    contacts returned) keep their upstream status, so counting by
+    ``len(batch_results)`` would inflate the user-visible
+    ``contacts_enriched`` stat. Count only the rows whose status
+    reflects actual enrichment success.
+    """
+    return sum(1 for r in batch_results if getattr(r, "status", None) == "enriched")
+
+
 async def update_job_progress(
     db: AsyncSession,
     job_id: uuid.UUID,
@@ -503,7 +517,9 @@ async def _phase_enrich_worker(
                 result_ids: list[uuid.UUID] = msg
 
                 if not enrich_people or not job_titles or not quickenrich_api_key:
-                    total_enriched += len(result_ids)
+                    # Enrichment entirely skipped for this job — no rows
+                    # gained 'enriched' status, so don't inflate the counter.
+                    # (The phase-progress UI still advances via update_job_progress.)
                     progress["enrich"] = total_enriched
                     await update_job_progress(db, job_id, "enrich", total_enriched, total_rows)
                     continue
@@ -538,7 +554,10 @@ async def _phase_enrich_worker(
 
                     await db.commit()
 
-                total_enriched += len(result_ids)
+                # Count only rows whose status is 'enriched' after this batch;
+                # len(result_ids) would include rows that skipped enrichment
+                # (no normalized_domain, no contacts returned, etc.).
+                total_enriched += _count_enriched_in_batch(batch_results)
                 progress["enrich"] = total_enriched
                 await update_job_progress(db, job_id, "enrich", total_enriched, total_rows)
 
