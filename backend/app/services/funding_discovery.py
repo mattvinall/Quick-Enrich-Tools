@@ -69,7 +69,9 @@ async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
                 )
                 response.raise_for_status()
                 data = response.json()
-                return data.get("news", [])
+                news = data.get("news", [])
+                logger.info("FUNDING SEARCH: '%s' → %d articles", q, len(news))
+                return news
 
         results = await asyncio.gather(
             *[_query(q) for q in _FUNDING_QUERIES],
@@ -81,7 +83,10 @@ async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
     articles: list[dict[str, str]] = []
     for result in results:
         if isinstance(result, BaseException):
-            logger.warning("Funding news query failed: %s", result)
+            logger.warning(
+                "Funding news query failed: %s: %s",
+                type(result).__name__, result,
+            )
             continue
         for article in result:
             url = article.get("link", "")
@@ -141,7 +146,10 @@ async def _extract_funding_data(articles: list[dict[str, str]]) -> list[dict[str
             else:
                 logger.warning("Gemini returned non-list for funding extraction")
         except Exception as exc:
-            logger.warning("Funding extraction batch failed: %s", exc)
+            logger.warning(
+                "Funding extraction batch failed: %s: %s",
+                type(exc).__name__, exc,
+            )
             continue
 
     return all_extracted

@@ -88,10 +88,6 @@ export default function G2CategorySelector({
   }
 
   const selectedCategories = categories.filter((c) => selectedSlugs.includes(c.slug));
-  const estimatedTotal = selectedCategories.reduce(
-    (sum, c) => sum + Math.min(c.estimated_products, maxPerCategory),
-    0,
-  );
 
   return (
     <div className="space-y-4">
@@ -101,9 +97,6 @@ export default function G2CategorySelector({
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-text-primary">
               {selectedSlugs.length} {selectedSlugs.length === 1 ? 'category' : 'categories'} selected
-            </span>
-            <span className="text-xs text-text-secondary">
-              ~{estimatedTotal.toLocaleString()} companies estimated
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -227,9 +220,6 @@ export default function G2CategorySelector({
                     <div className="flex-1 min-w-0">
                       <span className="text-sm font-medium text-text-primary">{cat.name}</span>
                     </div>
-                    <span className="text-xs text-text-secondary tabular-nums shrink-0">
-                      ~{cat.estimated_products} (est.)
-                    </span>
                   </label>
                 );
               })}

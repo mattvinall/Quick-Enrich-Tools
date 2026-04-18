@@ -56,6 +56,20 @@ _USER_AGENTS = [
 # Private/internal IP ranges to block (SSRF protection)
 _BLOCKED_HOSTNAMES = {"localhost", "metadata.google.internal", "metadata.internal"}
 
+# Domains known to use aggressive anti-bot protection (DataDome, PerimeterX, etc).
+# For these, skip datacenter-proxy passes entirely — they always fail and waste
+# credits, and repeated datacenter hits can poison scrape.do's IP pool for us.
+_ANTIBOT_DOMAINS = {
+    "g2.com", "linkedin.com", "crunchbase.com", "bloomberg.com",
+    "zoominfo.com", "glassdoor.com", "reuters.com",
+}
+
+
+def _is_antibot_domain(domain: str) -> bool:
+    """Return True if domain (or its parent) is in the anti-bot whitelist."""
+    d = domain.lower().removeprefix("www.")
+    return any(d == ab or d.endswith("." + ab) for ab in _ANTIBOT_DOMAINS)
+
 
 def _get_headers() -> dict[str, str]:
     """Return request headers with a randomly rotated User-Agent."""
@@ -285,36 +299,50 @@ async def crawl_site(
     result: dict[str, str] = {}
     homepage_url = f"https://{domain}"
 
-    # Step 1: Scrape homepage (3-pass escalation)
+    # Step 1: Scrape homepage
+    # Known anti-bot sites skip datacenter passes (always 403, wastes credits).
+    # Everything else uses 3-pass escalation: datacenter → render → super+render.
+    antibot = _is_antibot_domain(domain) and bool(settings.scrape_do_api_key)
     try:
-        # Pass 1: Normal datacenter proxy, no JS rendering (1 credit)
-        homepage_html = await scrape_page(client, homepage_url, render=False)
-        homepage_text = extract_text_from_html(homepage_html)
+        if antibot:
+            logger.info("SCRAPE ANTIBOT (super+render): %s", domain)
+            homepage_html = await scrape_page(
+                client, homepage_url,
+                render=True, super_proxy=True, block_resources=False,
+            )
+            homepage_text = extract_text_from_html(homepage_html)
+        else:
+            # Pass 1: Normal datacenter proxy, no JS rendering (1 credit)
+            homepage_html = await scrape_page(client, homepage_url, render=False)
+            homepage_text = extract_text_from_html(homepage_html)
 
-        # Pass 2: JS rendering if content too short (5 credits)
-        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
-            try:
-                logger.info("SCRAPE PASS 2 (render): %s", domain)
-                homepage_html = await scrape_page(client, homepage_url, render=True)
-                homepage_text = extract_text_from_html(homepage_html)
-            except Exception:
-                pass
+            # Pass 2: JS rendering if content too short (5 credits)
+            if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
+                try:
+                    logger.info("SCRAPE PASS 2 (render): %s", domain)
+                    homepage_html = await scrape_page(client, homepage_url, render=True)
+                    homepage_text = extract_text_from_html(homepage_html)
+                except Exception:
+                    pass
 
-        # Pass 3: Residential proxy + render + unblocked resources (25 credits)
-        if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
-            try:
-                logger.info("SCRAPE PASS 3 (super+render): %s", domain)
-                homepage_html = await scrape_page(
-                    client, homepage_url,
-                    render=True, super_proxy=True, block_resources=False,
-                )
-                homepage_text = extract_text_from_html(homepage_html)
-            except Exception:
-                pass
+            # Pass 3: Residential proxy + render + unblocked resources (25 credits)
+            if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
+                try:
+                    logger.info("SCRAPE PASS 3 (super+render): %s", domain)
+                    homepage_html = await scrape_page(
+                        client, homepage_url,
+                        render=True, super_proxy=True, block_resources=False,
+                    )
+                    homepage_text = extract_text_from_html(homepage_html)
+                except Exception:
+                    pass
 
         result[homepage_url] = homepage_text
     except Exception as exc:
-        logger.warning("Failed to scrape homepage for %s: %s", domain, exc)
+        logger.warning(
+            "Failed to scrape homepage for %s: %s: %s",
+            domain, type(exc).__name__, exc,
+        )
         return result
 
     # Step 2: Discover and scrape internal pages

@@ -105,7 +105,10 @@ async def enrich_company(
 
         await cache_set(cache_key, {"contacts": contacts}, settings.cache_ttl_days)
     except Exception as exc:
-        logger.warning("enrich_company error for domain=%s titles=%s: %s", domain, job_titles, exc)
+        logger.warning(
+            "enrich_company error for domain=%s titles=%s: %s: %s",
+            domain, job_titles, type(exc).__name__, exc,
+        )
 
     return contacts
 

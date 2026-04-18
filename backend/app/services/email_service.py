@@ -141,7 +141,13 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
             last_exc = exc
             if attempt < _MAX_RETRIES - 1:
                 delay = _BASE_DELAY * (2 ** attempt)
-                logger.warning("Email send attempt %d failed, retrying in %.0fs: %s", attempt + 1, delay, exc)
+                logger.warning(
+                    "Email send attempt %d failed, retrying in %.0fs: %s: %s",
+                    attempt + 1, delay, type(exc).__name__, exc,
+                )
                 await asyncio.sleep(delay)
 
-    logger.error("Email delivery failed after %d attempts to %s: %s", _MAX_RETRIES, to_email, last_exc)
+    logger.error(
+        "Email delivery failed after %d attempts to %s: %s: %s",
+        _MAX_RETRIES, to_email, type(last_exc).__name__, last_exc,
+    )

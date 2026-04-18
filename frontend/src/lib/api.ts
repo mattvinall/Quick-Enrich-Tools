@@ -157,7 +157,6 @@ export interface G2Category {
   slug: string;
   name: string;
   parent: string;
-  estimated_products: number;
 }
 
 export interface G2CategoriesResponse {
