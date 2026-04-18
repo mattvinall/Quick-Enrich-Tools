@@ -28,8 +28,8 @@ async def search_company(
 ) -> dict[str, object]:
     """Search for a company's website via the Serper API.
 
-    Returns a dict with keys: query, results, candidate_domain.
-    Results are cached by company_name + location for cache_ttl_days days.
+    Requests num=100 so we see the long tail of candidate domains; the
+    candidate_domain we return is still the top result.
     """
     cache_key = make_cache_key("serper", company_name.lower(), location.lower())
     cached = await cache_get(cache_key)
@@ -50,7 +50,7 @@ async def search_company(
             "X-API-KEY": api_key or settings.serper_api_key,
             "Content-Type": "application/json",
         },
-        json={"q": query, "num": 3},
+        json={"q": query, "num": 100},
         timeout=15.0,
     )
     response.raise_for_status()
@@ -58,7 +58,7 @@ async def search_company(
 
     organic: list[dict[str, object]] = data.get("organic", [])
     results: list[dict[str, object]] = []
-    for item in organic[:3]:
+    for item in organic:
         link: str = item.get("link", "")
         results.append(
             {
@@ -160,20 +160,25 @@ async def search_maps(
     query: str,
     location: str = "",
     api_key: str | None = None,
+    page: int = 1,
 ) -> dict[str, object]:
-    """Search Google Maps via the Serper /maps endpoint.
+    """Search Google Maps via the Serper /maps endpoint for a single page.
 
-    Returns a dict with keys: query, places (list of place dicts).
-    Results are cached by query + location for 3 days.
+    Returns a dict with keys: query, places (list of place dicts), page.
+    Results are cached by query + location + page for 3 days.
     """
     search_query = f"{query} in {location}" if location else query
-    cache_key = make_cache_key("serper_maps", search_query.lower())
+    cache_key = make_cache_key("serper_maps", search_query.lower(), f"p{page}")
     cached = await cache_get(cache_key)
     if cached is not None:
-        logger.info("SERPER MAPS CACHE HIT: %s", search_query)
+        logger.info("SERPER MAPS CACHE HIT: %s page=%d", search_query, page)
         return cached
 
-    logger.info("SERPER MAPS SEARCH: %s", search_query)
+    logger.info("SERPER MAPS SEARCH: %s page=%d", search_query, page)
+
+    body: dict[str, object] = {"q": search_query, "hl": "en"}
+    if page > 1:
+        body["page"] = page
 
     response = await client.post(
         "https://google.serper.dev/maps",
@@ -181,33 +186,37 @@ async def search_maps(
             "X-API-KEY": api_key or settings.serper_api_key,
             "Content-Type": "application/json",
         },
-        json={"q": search_query, "hl": "en"},
+        json=body,
         timeout=15.0,
     )
     response.raise_for_status()
     data = response.json()
 
     places: list[dict[str, object]] = data.get("places", [])
-    payload: dict[str, object] = {"query": search_query, "places": places}
-    await cache_set(cache_key, payload, 3)  # 3-day cache
+    payload: dict[str, object] = {"query": search_query, "places": places, "page": page}
+    await cache_set(cache_key, payload, 3)
     return payload
 
 
 async def batch_search_maps(
     searches: list[dict[str, str]],
-    max_per_search: int = 20,
+    max_per_search: int | None = None,
     concurrency: int | None = None,
     api_key: str | None = None,
 ) -> list[dict[str, object]]:
-    """Search Google Maps for multiple query+location pairs.
+    """Search Google Maps for multiple query+location pairs, paginating each.
 
     Each search: {"search_term": str, "location": str}
-    Returns a flat list of place dicts, each augmented with
-    'search_term' and 'location' keys. Deduplicates by normalized domain.
+    Returns a flat list of place dicts, each augmented with 'search_term' and
+    'location' keys. Deduplicates by normalized domain (then name+location).
 
-    max_per_search is capped at 20 per query (single Serper page).
+    Paginates each search up to settings.maps_max_pages_per_search pages
+    (Serper /maps returns ~20 per page) and stops early once the per-search
+    cap is hit or a page returns zero new results.
     """
     limit = concurrency if concurrency is not None else settings.serper_concurrency
+    per_search_cap = max_per_search if max_per_search is not None else settings.maps_max_per_search
+    page_cap = settings.maps_max_pages_per_search
     semaphore = asyncio.Semaphore(limit)
 
     async with httpx.AsyncClient() as client:
@@ -217,17 +226,31 @@ async def batch_search_maps(
         ) -> tuple[str, str, list[dict[str, object]]]:
             term = search["search_term"]
             loc = search["location"]
+            collected: list[dict[str, object]] = []
             async with semaphore:
-                try:
-                    result = await retry_async(
-                        lambda t=term, l=loc: search_maps(client, t, l, api_key=api_key),
-                        max_retries=3,
-                        base_delay=1.0,
-                    )
-                    return term, loc, result.get("places", [])[:max_per_search]
-                except Exception as exc:
-                    logger.warning("Maps search failed for '%s in %s': %s", term, loc, exc)
-                    return term, loc, []
+                for page in range(1, page_cap + 1):
+                    try:
+                        result = await retry_async(
+                            lambda t=term, l=loc, p=page: search_maps(
+                                client, t, l, api_key=api_key, page=p
+                            ),
+                            max_retries=3,
+                            base_delay=1.0,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Maps search failed for '%s in %s' page=%d: %s",
+                            term, loc, page, exc,
+                        )
+                        break
+                    page_places = result.get("places") or []
+                    if not page_places:
+                        break
+                    collected.extend(page_places)
+                    if len(collected) >= per_search_cap:
+                        collected = collected[:per_search_cap]
+                        break
+            return term, loc, collected
 
         raw_outcomes = await asyncio.gather(
             *[_search_one(s) for s in searches],
@@ -240,13 +263,13 @@ async def batch_search_maps(
 
     for outcome in raw_outcomes:
         if isinstance(outcome, BaseException):
+            logger.warning("batch_search_maps outcome error: %s", outcome)
             continue
         term, loc, places = outcome
         for place in places:
             website = str(place.get("website") or "")
             domain = _parse_domain(website) if website else ""
 
-            # Dedup by domain, or by name+location if no website
             if domain:
                 if domain in seen_domains:
                     continue
@@ -260,8 +283,5 @@ async def batch_search_maps(
             place["search_term"] = term
             place["location"] = loc
             all_places.append(place)
-
-            if len(all_places) >= settings.max_rows:
-                return all_places
 
     return all_places

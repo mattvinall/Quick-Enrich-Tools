@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     max_file_size_mb: int = 50
     max_rows: int = 100_000
+    maps_max_per_search: int = 100  # upper bound per search term; Serper /maps returns up to 20 per page so we paginate
+    maps_max_pages_per_search: int = 5  # safety cap on pagination depth
+    funding_news_pages_per_query: int = 3  # pages of 100 news articles per funding query
     uploads_per_email_per_day: int = 50
     uploads_per_ip_per_day: int = 50
     downloads_per_job: int = 10
