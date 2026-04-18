@@ -5,13 +5,14 @@ import logging
 import uuid
 from collections.abc import Generator
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
+from app.services.rate_limiter import check_rate_limit
 
 router = APIRouter(tags=["upload"])
 
@@ -52,6 +53,7 @@ def parse_csv_streaming(
 
 @router.post("/upload")
 async def upload_csv(
+    request: Request,
     file: UploadFile,
     company_column: str = Form(...),
     location_column: str = Form(default=""),
@@ -90,6 +92,11 @@ async def upload_csv(
 
     # --- resolve email from token ---
     email = str(token_payload["sub"])
+
+    # --- rate-limit per IP and per email ---
+    ip_address: str = request.client.host if request.client else "unknown"
+    await check_rate_limit(db, ip_address, "ip", "upload")
+    await check_rate_limit(db, email, "email", "upload")
 
     # --- create Job ---
     # Parse job_titles — frontend sends JSON string like '["CEO","Founder"]'

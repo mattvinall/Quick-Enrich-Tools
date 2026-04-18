@@ -11,6 +11,8 @@ from app.models import RateLimit
 LIMITS: dict[tuple[str, str], int] = {
     ("email", "email_capture"): settings.uploads_per_email_per_day,
     ("ip", "email_capture"): settings.uploads_per_ip_per_day,
+    ("email", "upload"): settings.uploads_per_email_per_day,
+    ("ip", "upload"): settings.uploads_per_ip_per_day,
 }
 
 
