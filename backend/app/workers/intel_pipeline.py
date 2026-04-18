@@ -535,7 +535,7 @@ async def _phase_enrich_worker(
                         domains_with_rows.setdefault(r.normalized_domain, []).append(r.row_index)
 
                 if domains_with_rows:
-                    contacts_by_domain = await batch_enrich(
+                    outcomes_by_domain = await batch_enrich(
                         domains_with_rows,
                         job_titles=job_titles,
                         max_contacts=max_contacts,
@@ -544,7 +544,16 @@ async def _phase_enrich_worker(
 
                     result_by_row = {r.row_index: r for r in batch_results}
                     for domain, row_indices in domains_with_rows.items():
-                        contacts = contacts_by_domain.get(domain, [])
+                        outcome = outcomes_by_domain.get(domain)
+                        if outcome is None:
+                            contacts: list[dict[str, str]] = []
+                        else:
+                            contacts = outcome.contacts
+                            if outcome.error is not None:
+                                logger.warning(
+                                    "Enrichment error for domain=%s job_id=%s: %s",
+                                    domain, job_id, outcome.error,
+                                )
                         for row_index in row_indices:
                             job_result = result_by_row.get(row_index)
                             if job_result is not None:

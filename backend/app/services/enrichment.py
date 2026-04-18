@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import dataclass
 
 import httpx
 
@@ -119,14 +120,32 @@ async def enrich_company(
     return contacts
 
 
+@dataclass
+class EnrichmentOutcome:
+    """Result of enriching one domain.
+
+    `contacts` is the list of resolved contacts (may be empty).
+    `error` is non-None iff the QuickEnrich call failed for this domain; callers
+    can treat an empty-but-no-error as "genuinely no matches" vs. an error as
+    "retryable / surface to user".
+    """
+    contacts: list[dict[str, str]]
+    error: str | None = None
+
+
 async def batch_enrich(
     domains_with_rows: dict[str, list[int]],
     job_titles: list[str],
     max_contacts: int = 1,
     concurrency: int | None = None,
     api_key: str | None = None,
-) -> dict[str, list[dict[str, str]]]:
-    """Enrich each unique domain once with a shared httpx client."""
+) -> dict[str, EnrichmentOutcome]:
+    """Enrich each unique domain once with a shared httpx client.
+
+    Returns {domain: EnrichmentOutcome}. An outcome with .error set means
+    the QuickEnrich call failed (network/5xx/429 exhausted retries); an
+    outcome with contacts=[] and error=None means the API returned no matches.
+    """
     limit = concurrency if concurrency is not None else settings.enrich_concurrency
     semaphore = asyncio.Semaphore(limit)
 
@@ -145,15 +164,22 @@ async def batch_enrich(
             return_exceptions=True,
         )
 
-    results: dict[str, list[dict[str, str]]] = {}
+    results: dict[str, EnrichmentOutcome] = {}
     for outcome in raw_outcomes:
         if isinstance(outcome, BaseException):
+            logger.warning("batch_enrich outer failure: %s", outcome)
             continue
         domain, value = outcome
         if isinstance(value, BaseException):
-            logger.warning("batch_enrich failed for domain=%s: %s", domain, value)
-            results[domain] = []
+            logger.warning(
+                "batch_enrich failed for domain=%s: %s: %s",
+                domain, type(value).__name__, value,
+            )
+            results[domain] = EnrichmentOutcome(
+                contacts=[],
+                error=f"{type(value).__name__}: {value}",
+            )
         else:
-            results[domain] = value
+            results[domain] = EnrichmentOutcome(contacts=value, error=None)
 
     return results

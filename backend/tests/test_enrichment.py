@@ -37,3 +37,36 @@ async def test_enrich_company_extracts_mobile_field():
     assert len(contacts) == 1
     assert contacts[0]["phone"] == "+1-555-0100"
     assert contacts[0]["mobile"] == "+1-555-0199"
+
+
+@pytest.mark.asyncio
+async def test_batch_enrich_reports_per_domain_errors(monkeypatch):
+    """When a domain's enrichment throws, batch_enrich returns an error marker, not []."""
+    from app.services.enrichment import batch_enrich, EnrichmentOutcome
+
+    async def ok_domain(client, domain, job_titles, max_contacts, api_key=None):
+        return [{"title": "CEO", "first_name": "A", "last_name": "B", "email": "", "phone": "", "mobile": "", "linkedin_url": ""}]
+
+    async def broken_domain(client, domain, job_titles, max_contacts, api_key=None):
+        raise httpx.HTTPStatusError("429 Too Many Requests", request=None, response=MagicMock(status_code=429))
+
+    async def route(client, domain, job_titles, max_contacts, api_key=None):
+        if domain == "ok.com":
+            return await ok_domain(client, domain, job_titles, max_contacts, api_key=api_key)
+        return await broken_domain(client, domain, job_titles, max_contacts, api_key=api_key)
+
+    monkeypatch.setattr("app.services.enrichment.enrich_company", route)
+
+    outcomes = await batch_enrich(
+        {"ok.com": [0], "broken.com": [1]},
+        job_titles=["CEO"],
+        max_contacts=1,
+    )
+
+    assert isinstance(outcomes["ok.com"], EnrichmentOutcome)
+    assert outcomes["ok.com"].error is None
+    assert len(outcomes["ok.com"].contacts) == 1
+
+    assert isinstance(outcomes["broken.com"], EnrichmentOutcome)
+    assert outcomes["broken.com"].error is not None
+    assert outcomes["broken.com"].contacts == []
