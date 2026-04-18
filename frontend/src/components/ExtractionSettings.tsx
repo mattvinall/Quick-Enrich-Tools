@@ -277,7 +277,7 @@ export default function ExtractionSettings({
                 "focus:outline-none focus:ring-2 focus:ring-primary/40"
               )}
             >
-              {[1, 2, 3, 4, 5].map((n) => (
+              {[1, 2, 3, 5, 10, 20].map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>

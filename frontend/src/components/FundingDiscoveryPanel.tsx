@@ -124,19 +124,24 @@ export default function FundingDiscoveryPanel({
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-text-primary">Time range:</span>
           <div className="flex rounded-md border border-border overflow-hidden">
-            {[24, 48].map((h) => (
+            {[
+              { value: 24, label: '24h' },
+              { value: 48, label: '48h' },
+              { value: 72, label: '3d' },
+              { value: 168, label: '7d' },
+            ].map(({ value, label }) => (
               <button
-                key={h}
+                key={value}
                 type="button"
-                onClick={() => onHoursChange(h)}
+                onClick={() => onHoursChange(value)}
                 className={cn(
                   'px-3 py-1 text-xs font-medium transition-colors',
-                  hours === h
+                  hours === value
                     ? 'bg-primary text-white'
                     : 'bg-white text-text-secondary hover:bg-gray-50',
                 )}
               >
-                {h}h
+                {label}
               </button>
             ))}
           </div>

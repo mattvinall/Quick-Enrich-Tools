@@ -101,18 +101,17 @@ class FundingExtractRequest(BaseModel):
 @router.get("/discover")
 async def discover_funding(
     request: Request,
-    hours: int = Query(default=24, description="Look back window: 24 or 48 hours"),
+    hours: int = Query(default=24, description="Look back window in hours (1-168)"),
 ) -> dict:
     """Discover companies funded in the last N hours.
 
-    Only accepts hours=24 or hours=48 to limit cache buckets and
-    prevent abuse of Serper/Gemini API calls via parameter variation.
+    Accepts hours in [1, 168] so the UI can offer 24h/48h/3d/7d ranges.
     """
     _check_discover_rate_limit(request.client.host if request.client else "unknown")
-    if hours not in (24, 48):
+    if hours < 1 or hours > 168:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="hours must be 24 or 48.",
+            detail="hours must be between 1 and 168 (inclusive).",
         )
     companies = await discover_funded_companies(hours)
     return {"companies": companies, "total": len(companies)}
