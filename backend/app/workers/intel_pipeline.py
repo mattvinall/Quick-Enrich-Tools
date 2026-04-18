@@ -594,8 +594,12 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
                 download_url=download_url,
                 job_stats=job_stats,
             )
-        except Exception:
-            logger.exception("Failed to send intel results email for job_id=%s", job_id)
+        except Exception as exc:
+            logger.error(
+                "Email delivery failed for job_id=%s recipient=%s: %s",
+                job_id, email_capture.email, exc,
+            )
+            # Do not fail the job — CSV is still downloadable in-app.
 
         await update_job_progress(db, job_id, "deliver", 1, 1)
 

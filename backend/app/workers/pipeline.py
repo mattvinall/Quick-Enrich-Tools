@@ -423,8 +423,12 @@ async def _phase_deliver(
                 job_stats=job_stats,
             )
             logger.info("Results email sent successfully for job_id=%s to=%s", job_id, email_capture.email)
-        except Exception:
-            logger.exception("Failed to send results email for job_id=%s to=%s", job_id, email_capture.email)
+        except Exception as exc:
+            logger.error(
+                "Email delivery failed for job_id=%s recipient=%s: %s",
+                job_id, email_capture.email, exc,
+            )
+            # Do not fail the job — CSV is still downloadable in-app.
 
         await update_job_progress(db, job_id, "deliver", 1, 1)
 

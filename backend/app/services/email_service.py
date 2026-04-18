@@ -23,6 +23,10 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
         logger.error("RESEND_API_KEY not configured — skipping email to %s", to_email)
         return
 
+    if not to_email:
+        logger.error("send_results_email called with empty recipient — skipping")
+        return
+
     resend.api_key = settings.resend_api_key
 
     total: int = job_stats.get("total_rows", 0)
@@ -151,3 +155,4 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
         "Email delivery failed after %d attempts to %s: %s: %s",
         _MAX_RETRIES, to_email, type(last_exc).__name__, last_exc,
     )
+    raise RuntimeError(f"Email delivery failed: {last_exc}") from last_exc
