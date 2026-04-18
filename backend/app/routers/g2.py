@@ -216,9 +216,9 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
             _sanitize_csv(contact.get("first_name", "")),
             _sanitize_csv(contact.get("last_name", "")),
             _sanitize_csv(contact.get("email", "")),
-            contact.get("phone", ""),
-            contact.get("mobile", ""),
-            contact.get("linkedin_url", ""),
+            _sanitize_csv(contact.get("phone", "")),
+            _sanitize_csv(contact.get("mobile", "")),
+            _sanitize_csv(contact.get("linkedin_url", "")),
         ]
         rows.append(prefix + contact_cells)
     return rows
