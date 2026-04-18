@@ -9,7 +9,7 @@ from app.services.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
-_CONTACT_FIELDS = ("title", "first_name", "last_name", "email", "phone", "linkedin_url")
+_CONTACT_FIELDS = ("title", "first_name", "last_name", "email", "phone", "mobile", "linkedin_url")
 
 
 def _enrich_cache_key(domain: str, job_titles: list[str], max_contacts: int) -> str:
@@ -95,6 +95,12 @@ async def enrich_company(
                         "last_name": last,
                         "email": email,
                         "phone": str(record.get("employee_phone") or record.get("phone") or ""),
+                        "mobile": str(
+                            record.get("employee_mobile")
+                            or record.get("mobile")
+                            or record.get("mobile_phone")
+                            or ""
+                        ),
                         "linkedin_url": str(
                             record.get("employee_linkedin") or record.get("linkedin_url") or ""
                         ),

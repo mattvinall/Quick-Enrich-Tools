@@ -163,7 +163,7 @@ def _sanitize_csv(value: str) -> str:
 
 _BATCH_SIZE = 500
 _BASE_COLUMNS = ["g2_category", "g2_url", "g2_rating", "g2_review_count", "input", "website", "status"]
-_CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
+_CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "mobile", "linkedin"]
 
 
 def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
@@ -207,7 +207,7 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
         all_contacts = [c for c in raw_contacts if isinstance(c, dict)]
 
     if not all_contacts:
-        return [prefix + ["", "", "", "", "", ""]]
+        return [prefix + ["", "", "", "", "", "", ""]]
 
     rows: list[list[str]] = []
     for contact in all_contacts:
@@ -217,6 +217,7 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
             _sanitize_csv(contact.get("last_name", "")),
             _sanitize_csv(contact.get("email", "")),
             contact.get("phone", ""),
+            contact.get("mobile", ""),
             contact.get("linkedin_url", ""),
         ]
         rows.append(prefix + contact_cells)
