@@ -10,6 +10,8 @@ from app.services.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
+_MAX_PROMPT_CHARS = 16000  # ~4k tokens, safe across all providers
+
 
 def _build_field_instructions(options: dict) -> str:
     """Build the dynamic field extraction instructions based on user options."""
@@ -62,6 +64,13 @@ def _build_prompt(domain: str, scraped_pages: dict[str, str], options: dict) -> 
     combined_text = "\n\n---\n\n".join(
         f"[Page: {url}]\n{text}" for url, text in scraped_pages.items()
     )
+
+    if len(combined_text) > _MAX_PROMPT_CHARS:
+        combined_text = combined_text[:_MAX_PROMPT_CHARS] + "\n\n[...truncated]"
+        logger.info(
+            "intel_extractor: truncated combined page text for %s to %d chars",
+            domain, _MAX_PROMPT_CHARS,
+        )
 
     field_instructions = _build_field_instructions(options)
 
