@@ -1,8 +1,9 @@
-"""G2 category product discovery via Serper (Google search).
+"""G2 category product discovery.
 
-G2 uses DataDome anti-bot which blocks direct scraping (even via Spider.cloud).
-Instead, we use Serper to search `site:g2.com/products` for each category,
-extract product names and G2 URLs from search results, and deduplicate.
+Primary path scrapes g2.com/categories/{slug} via scrape.do (rendered) and
+paginates through `?page=N`, pulling ~15 products per page from the
+`.product-card` markup. Serper is used as a fallback when scraping fails,
+searching `site:g2.com/products` with a set of query variants + pagination.
 """
 
 import asyncio
@@ -118,6 +119,10 @@ def _parse_g2_products_from_results(results: list[dict]) -> list[dict]:
     return products
 
 
+_RATING_RE = re.compile(r"(\d\.\d)\s*out of 5")
+_REVIEW_COUNT_RE = re.compile(r"\(([\d,]+)\)")
+
+
 def _parse_g2_category_html(html: str) -> tuple[list[dict], int]:
     """Parse G2 category page HTML to extract product listings.
 
@@ -127,18 +132,37 @@ def _parse_g2_category_html(html: str) -> tuple[list[dict], int]:
     soup = BeautifulSoup(html, "lxml")
     products: list[dict] = []
 
-    cards = soup.select('[data-product-id]') or soup.select('.product-listing__card') or soup.select('.paper--product')
+    # Current markup uses .product-card; older markup used the ones below. Keep
+    # legacy selectors as fallback so a markup revert doesn't silently break us.
+    cards = (
+        soup.select('.product-card')
+        or soup.select('[data-product-id]')
+        or soup.select('.product-listing__card')
+        or soup.select('.paper--product')
+    )
 
     for card in cards:
         try:
-            name_el = card.select_one('a.product-listing__product-name') or card.select_one('[itemprop="name"]') or card.select_one('h3 a')
-            if not name_el:
-                continue
-            name = name_el.get_text(strip=True)
+            name_el = (
+                card.select_one('[itemprop="name"]')
+                or card.select_one('.product-card__product-name')
+                or card.select_one('a.product-listing__product-name')
+                or card.select_one('h3 a')
+            )
+            name = name_el.get_text(strip=True) if name_el else ""
+            if not name:
+                img = card.select_one('img[alt]')
+                if img:
+                    name = img.get("alt", "").strip()
             if not name or len(name) < 2:
                 continue
 
-            href = name_el.get("href", "")
+            url_el = (
+                card.select_one('a.product-card__img[href]')
+                or card.select_one('a.product-listing__product-name[href]')
+                or (name_el if name_el and name_el.name == "a" else None)
+            )
+            href = url_el.get("href", "") if url_el else ""
             if href and not href.startswith("http"):
                 href = f"https://www.g2.com{href}"
             slug = ""
@@ -146,17 +170,28 @@ def _parse_g2_category_html(html: str) -> tuple[list[dict], int]:
                 parts = urlparse(href).path.strip("/").split("/")
                 if len(parts) >= 2 and parts[0] == "products":
                     slug = parts[1]
-            g2_url = f"https://www.g2.com/products/{slug}" if slug else href
+            if not slug:
+                continue
+            g2_url = f"https://www.g2.com/products/{slug}"
 
-            rating = None
+            card_text = card.get_text(" ", strip=True)
+
+            rating: float | None = None
             rating_el = card.select_one('[itemprop="ratingValue"]') or card.select_one('.star-wrapper__value')
             if rating_el:
                 try:
                     rating = float(rating_el.get("content", "") or rating_el.get_text(strip=True))
                 except (ValueError, TypeError):
-                    pass
+                    rating = None
+            if rating is None:
+                m = _RATING_RE.search(card_text)
+                if m:
+                    try:
+                        rating = float(m.group(1))
+                    except ValueError:
+                        rating = None
 
-            review_count = None
+            review_count: int | None = None
             review_el = card.select_one('[itemprop="reviewCount"]') or card.select_one('.product-listing__review-count')
             if review_el:
                 text = review_el.get("content", "") or review_el.get_text(strip=True)
@@ -165,9 +200,16 @@ def _parse_g2_category_html(html: str) -> tuple[list[dict], int]:
                     try:
                         review_count = int(nums[0].replace(",", ""))
                     except ValueError:
-                        pass
+                        review_count = None
+            if review_count is None:
+                m = _REVIEW_COUNT_RE.search(card_text)
+                if m:
+                    try:
+                        review_count = int(m.group(1).replace(",", ""))
+                    except ValueError:
+                        review_count = None
 
-            website = None
+            website: str | None = None
             website_el = card.select_one('a[href*="visit_website"]') or card.select_one('.product-listing__website')
             if website_el:
                 ws_href = website_el.get("href", "")
@@ -213,7 +255,7 @@ async def discover_g2_category_via_scrape(
 
     Returns list of product dicts, or None if scraping failed (caller should fallback to Serper).
     """
-    cache_key = make_cache_key("g2_cat_scrape", category_slug, str(max_products))
+    cache_key = make_cache_key("g2_cat_scrape_v2", category_slug, str(max_products))
     try:
         cached = await cache_get(cache_key)
         if cached is not None and isinstance(cached, dict):
@@ -225,8 +267,9 @@ async def discover_g2_category_via_scrape(
 
     all_products: list[dict] = []
     seen_slugs: set[str] = set()
+    # G2 renders 15 products per category page; cap by the configured ceiling.
     max_pages = min(
-        max(1, (max_products + 24) // 25),
+        max(1, (max_products + 14) // 15),
         settings.g2_max_pages_per_category,
     )
 
@@ -252,10 +295,14 @@ async def discover_g2_category_via_scrape(
                     )
                 status = "ok"
                 body_len = len(candidate)
-                has_cards = (
-                    "data-product-id" in candidate
-                    or "product-listing__card" in candidate
-                    or "paper--product" in candidate
+                # Parse the DOM to check for real product cards. String matching
+                # produced false positives (stray JS mentions of data-product-id).
+                probe_soup = BeautifulSoup(candidate, "lxml")
+                has_cards = bool(
+                    probe_soup.select_one('.product-card')
+                    or probe_soup.select_one('[data-product-id]')
+                    or probe_soup.select_one('.product-listing__card')
+                    or probe_soup.select_one('.paper--product')
                 )
                 logger.info(
                     "G2 SCRAPE.DO: category=%s page=%d super=%s status=%s body_len=%d cards_present=%s",
@@ -316,7 +363,7 @@ async def discover_g2_category_via_scrape(
 
         if len(all_products) >= max_products:
             break
-        if len(products) < 25:
+        if len(products) < 15:
             break
         if page >= total_pages:
             break

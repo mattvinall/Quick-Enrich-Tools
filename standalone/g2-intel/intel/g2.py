@@ -35,15 +35,33 @@ def _parse_g2_html(html: str) -> list[dict]:
     """Parse product cards from a G2 category listing page."""
     soup = BeautifulSoup(html, "lxml")
     products: list[dict] = []
-    cards = soup.select("[data-product-id]") or soup.select(".product-listing__card") or soup.select(".paper--product")
+    # Current G2 markup uses .product-card; older markup is kept as fallback.
+    cards = (
+        soup.select(".product-card")
+        or soup.select("[data-product-id]")
+        or soup.select(".product-listing__card")
+        or soup.select(".paper--product")
+    )
     for card in cards:
-        name_el = card.select_one('a.product-listing__product-name') or card.select_one('[itemprop="name"]') or card.select_one('h3 a')
-        if not name_el:
-            continue
-        name = name_el.get_text(strip=True)
+        name_el = (
+            card.select_one('[itemprop="name"]')
+            or card.select_one('.product-card__product-name')
+            or card.select_one('a.product-listing__product-name')
+            or card.select_one('h3 a')
+        )
+        name = name_el.get_text(strip=True) if name_el else ""
+        if not name:
+            img = card.select_one('img[alt]')
+            if img:
+                name = img.get("alt", "").strip()
         if not name:
             continue
-        href = name_el.get("href", "")
+        url_el = (
+            card.select_one('a.product-card__img[href]')
+            or card.select_one('a.product-listing__product-name[href]')
+            or (name_el if name_el and name_el.name == "a" else None)
+        )
+        href = url_el.get("href", "") if url_el else ""
         if href and not href.startswith("http"):
             href = f"https://www.g2.com{href}"
         slug = _slug_from_url(href)
@@ -58,10 +76,12 @@ async def discover_via_scrape(client: httpx.AsyncClient, slug: str) -> list[dict
     for super_proxy in (True, False):
         try:
             html = await scrape_page(client, url, render=True, super_proxy=super_proxy, block_resources=False)
-            has_cards = (
-                "data-product-id" in html
-                or "product-listing__card" in html
-                or "paper--product" in html
+            probe_soup = BeautifulSoup(html, "lxml")
+            has_cards = bool(
+                probe_soup.select_one('.product-card')
+                or probe_soup.select_one('[data-product-id]')
+                or probe_soup.select_one('.product-listing__card')
+                or probe_soup.select_one('.paper--product')
             )
             products = _parse_g2_html(html)
             logger.info(
