@@ -7,8 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { getG2Categories, G2Category } from '@/lib/api';
 
-const MAX_PER_CATEGORY_OPTIONS = [50, 100, 250, 500] as const;
-
 interface G2CategorySelectorProps {
   selectedSlugs: string[];
   onSelectionChange: (slugs: string[]) => void;
@@ -234,19 +232,21 @@ export default function G2CategorySelector({
           <label className="text-xs font-semibold text-text-primary">Max companies per category</label>
           <p className="text-xs text-text-secondary">Limit how many companies to discover from each category.</p>
         </div>
-        <select
+        <input
+          type="number"
+          min={1}
+          step={1}
           value={maxPerCategory}
-          onChange={(e) => onMaxPerCategoryChange(Number(e.target.value))}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (Number.isFinite(v) && v >= 1) onMaxPerCategoryChange(v);
+          }}
           className={cn(
-            'w-20 shrink-0 px-2.5 py-1.5 text-sm rounded-md',
+            'w-24 shrink-0 px-2.5 py-1.5 text-sm rounded-md',
             'border border-border bg-white text-text-primary',
             'focus:outline-none focus:ring-2 focus:ring-primary/40',
           )}
-        >
-          {MAX_PER_CATEGORY_OPTIONS.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+        />
       </div>
     </div>
   );

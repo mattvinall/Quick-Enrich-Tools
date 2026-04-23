@@ -105,10 +105,10 @@ async def submit_g2_extraction(
             detail="At least one extraction option must be selected.",
         )
 
-    if body.max_per_category < 1 or body.max_per_category > 1000:
+    if body.max_per_category < 1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="max_per_category must be between 1 and 1000.",
+            detail="max_per_category must be at least 1.",
         )
 
     email = str(token_payload["sub"])

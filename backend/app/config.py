@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     intel_extraction_concurrency: int = 10
     cache_ttl_days: int = 7
     g2_scrape_concurrency: int = 5
-    g2_max_pages_per_category: int = 67  # 67 * 15/page = 1005 products, covers the 1000 per-category validator max
+    g2_max_pages_per_category: int = 500  # runaway-protection ceiling; 500 * 15/page = 7500 products, far beyond any real G2 category
     g2_max_total_companies: int = 50_000
     g2_cache_ttl_days: int = 3
     g2_serper_pages_per_query: int = 3  # pages of 100 organic results per G2 fallback query
