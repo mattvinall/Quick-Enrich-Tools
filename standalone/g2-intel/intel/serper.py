@@ -51,15 +51,23 @@ async def search_company_website(client: httpx.AsyncClient, company_name: str) -
     return ""
 
 
-async def serper_search(client: httpx.AsyncClient, query: str, num: int = 100) -> list[dict]:
-    """Generic organic-search call."""
+async def serper_search(
+    client: httpx.AsyncClient,
+    query: str,
+    num: int = 100,
+    page: int = 1,
+) -> list[dict]:
+    """Generic organic-search call. Set page>1 to paginate."""
     if not SERPER_API_KEY:
         return []
+    body: dict[str, object] = {"q": query, "num": num}
+    if page > 1:
+        body["page"] = page
     response = await retry_async(
         lambda: client.post(
             "https://google.serper.dev/search",
             headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
-            json={"q": query, "num": num},
+            json=body,
             timeout=15.0,
         ),
         max_retries=2,

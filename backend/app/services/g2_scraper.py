@@ -53,8 +53,16 @@ def _clean_product_name(title: str) -> str:
     return name
 
 
-async def _serper_search(client: httpx.AsyncClient, query: str, num: int = 30) -> list[dict]:
+async def _serper_search(
+    client: httpx.AsyncClient,
+    query: str,
+    num: int = 30,
+    page: int = 1,
+) -> list[dict]:
     """Run a single Serper search and return organic results."""
+    body: dict[str, object] = {"q": query, "num": num}
+    if page > 1:
+        body["page"] = page
     response = await retry_async(
         lambda: client.post(
             "https://google.serper.dev/search",
@@ -62,7 +70,7 @@ async def _serper_search(client: httpx.AsyncClient, query: str, num: int = 30) -
                 "X-API-KEY": settings.serper_api_key,
                 "Content-Type": "application/json",
             },
-            json={"q": query, "num": num},
+            json=body,
             timeout=15.0,
         ),
         max_retries=2,
@@ -227,35 +235,71 @@ async def discover_g2_category_via_scrape(
         if page > 1:
             url += f"?page={page}"
 
-        html = None
-        for super_proxy in (True, False):
+        html: str | None = None
+        status = "unknown"
+        # Two passes: super+render with resources on, then plain render as a second try.
+        # If the first returns HTML without product cards (DataDome JS-gate), we retry.
+        for attempt_idx, super_proxy in enumerate((True, False)):
             try:
                 if semaphore:
                     async with semaphore:
-                        html = await scrape_page(
+                        candidate = await scrape_page(
                             client, url, render=True, super_proxy=super_proxy, block_resources=False,
                         )
                 else:
-                    html = await scrape_page(
+                    candidate = await scrape_page(
                         client, url, render=True, super_proxy=super_proxy, block_resources=False,
                     )
-                break
+                status = "ok"
+                body_len = len(candidate)
+                has_cards = (
+                    "data-product-id" in candidate
+                    or "product-listing__card" in candidate
+                    or "paper--product" in candidate
+                )
+                logger.info(
+                    "G2 SCRAPE.DO: category=%s page=%d super=%s status=%s body_len=%d cards_present=%s",
+                    category_slug, page, super_proxy, status, body_len, has_cards,
+                )
+                html = candidate
+                if has_cards:
+                    break
+                # Empty shell (DataDome JS-gate): try next pass with different render option
+                logger.info(
+                    "G2 SCRAPE.DO: no product cards found on attempt %d for %s page %d, retrying",
+                    attempt_idx + 1, category_slug, page,
+                )
             except Exception as exc:
+                status = f"{type(exc).__name__}"
                 logger.warning(
-                    "G2 scrape.do failed for %s page %d (super=%s): %s: %s",
-                    category_slug, page, super_proxy, type(exc).__name__, exc,
+                    "G2 SCRAPE.DO failed: category=%s page=%d super=%s status=%s err=%s",
+                    category_slug, page, super_proxy, status, exc,
                 )
                 continue
 
         if html is None:
+            # All scrape.do attempts raised. Signal fallback by returning None.
+            logger.info(
+                "G2 SCRAPE.DO: category=%s page=%d -> scrape_failed=true (all attempts raised)",
+                category_slug, page,
+            )
             if page == 1:
                 return None
             break
 
         products, total_pages = _parse_g2_category_html(html)
+        logger.info(
+            "G2 SCRAPE.DO PARSE: category=%s page=%d -> %d products parsed (total_pages=%d)",
+            category_slug, page, len(products), total_pages,
+        )
 
         if not products:
+            # HTML returned but no product cards — treat as scrape failure on page 1
             if page == 1:
+                logger.info(
+                    "G2 SCRAPE.DO: category=%s -> scrape_failed=true (0 products parsed on page 1)",
+                    category_slug,
+                )
                 return None
             break
 
@@ -266,7 +310,7 @@ async def discover_g2_category_via_scrape(
                 all_products.append(p)
 
         logger.info(
-            "G2 SCRAPE: %s page %d → %d products (total: %d)",
+            "G2 SCRAPE: %s page %d -> %d products (total: %d)",
             category_slug, page, len(products), len(all_products),
         )
 
@@ -310,8 +354,9 @@ async def discover_g2_category(
     except Exception:
         pass  # Redis unavailable — continue without cache
 
-    # Build search queries for this category
-    # Multiple queries improve coverage since Google caps at ~100 results
+    # Build search queries for this category.
+    # Google's site:g2.com/products index is shallow per-query, so we use a
+    # diverse set of phrasings + paginate each one to maximize coverage.
     queries = [
         f'site:g2.com/products "{category_name}"',
         f'site:g2.com/products {category_name} software reviews',
@@ -319,47 +364,75 @@ async def discover_g2_category(
         f'site:g2.com/products {category_name} alternatives',
         f'site:g2.com/products top {category_name} software 2025 2026',
         f'g2.com/products {category_name}',
+        f'site:g2.com/products "{category_name}" platform',
+        f'site:g2.com/products "{category_name}" vendor',
+        f'site:g2.com/products "G2 Grid" "{category_name}"',
+        f'site:g2.com/products "{category_name}" 2026',
+        f'site:g2.com/products "{category_name}" software company',
+        f'site:g2.com/products "{category_name}" pricing',
     ]
 
-    async def _run_query(query: str) -> tuple[str, list[dict]]:
-        """Run a single Serper query and return (query, organic_results).
+    page_cap = settings.g2_serper_pages_per_query
 
-        Swallows exceptions so one failing query does not sink the gather.
-        """
+    async def _run_query_page(query: str, page: int) -> tuple[str, int, list[dict]]:
+        """Run a single (query, page) Serper call. Swallows exceptions."""
         try:
             if semaphore:
                 async with semaphore:
-                    results = await _serper_search(client, query, num=100)
+                    results = await _serper_search(client, query, num=100, page=page)
             else:
-                results = await _serper_search(client, query, num=100)
-            return query, results
+                results = await _serper_search(client, query, num=100, page=page)
+            return query, page, results
         except Exception as exc:
-            logger.warning("G2 Serper search failed for '%s': %s", query, exc)
-            return query, []
+            logger.warning(
+                "G2 SERPER failed: query='%s' page=%d err=%s: %s",
+                query, page, type(exc).__name__, exc,
+            )
+            return query, page, []
 
-    # Fire all Serper queries concurrently — coverage queries are independent,
-    # so running them in parallel cuts fallback latency by ~5-6x.
-    query_results = await asyncio.gather(*[_run_query(q) for q in queries])
+    # Fire all (query, page) pairs concurrently — the existing semaphore
+    # already gates overall G2 concurrency.
+    tasks = [
+        _run_query_page(q, p)
+        for q in queries
+        for p in range(1, page_cap + 1)
+    ]
+    query_results = await asyncio.gather(*tasks)
+
+    # Per-query aggregation for logging: total raw results, unique slugs this query contributed.
+    per_query_raw: dict[str, int] = {}
+    per_query_slugs: dict[str, set[str]] = {q: set() for q in queries}
 
     all_products: list[dict] = []
     seen_slugs: set[str] = set()
 
-    for query, results in query_results:
+    for query, page, results in query_results:
+        per_query_raw[query] = per_query_raw.get(query, 0) + len(results)
+        logger.info(
+            "G2 SERPER: category=%s query='%s' page=%d -> %d raw results",
+            category_slug, query, page, len(results),
+        )
         products = _parse_g2_products_from_results(results)
-        new_count = 0
         for p in products:
             slug = _extract_product_slug(p["g2_url"])
-            if slug and slug not in seen_slugs:
+            if not slug:
+                continue
+            per_query_slugs[query].add(slug)
+            if slug not in seen_slugs:
                 seen_slugs.add(slug)
                 all_products.append(p)
-                new_count += 1
                 if len(all_products) >= max_products:
                     break
 
-        logger.info("G2 SEARCH: '%s' → %d new products (total: %d)", query, new_count, len(all_products))
-
-        if len(all_products) >= max_products:
-            break
+    for q in queries:
+        logger.info(
+            "G2 SERPER SUMMARY: category=%s query='%s' raw=%d unique_slugs=%d",
+            category_slug, q, per_query_raw.get(q, 0), len(per_query_slugs[q]),
+        )
+    logger.info(
+        "G2 SERPER TOTAL: category=%s queries=%d pages_per_query=%d -> %d unique slugs",
+        category_slug, len(queries), page_cap, len(seen_slugs),
+    )
 
     result = all_products[:max_products]
 
@@ -391,6 +464,8 @@ async def batch_scrape_g2_categories(
     seen_slugs: set[str] = set()
     failed_categories: list[tuple[str, str]] = []
     done_count = 0
+    # Track which path yielded products for each category (for final summary).
+    scraped_ok: set[str] = set()
 
     async with httpx.AsyncClient() as client:
         async def _scrape_one(slug: str, name: str) -> tuple[str, list[dict] | None]:
@@ -419,11 +494,18 @@ async def batch_scrape_g2_categories(
                 if products is None:
                     failed_categories.append((slug, name))
                 else:
+                    scraped_ok.add(slug)
+                    added = 0
                     for p in products:
                         product_slug = _extract_product_slug(p.get("g2_url", ""))
                         if product_slug and product_slug not in seen_slugs:
                             seen_slugs.add(product_slug)
                             all_products.append({**p, "g2_category": slug})
+                            added += 1
+                    logger.info(
+                        "G2 PATH: category=%s discovered_via=scrape products=%d added_unique=%d",
+                        slug, len(products), added,
+                    )
 
             done_count += 1
             if on_progress:
@@ -441,13 +523,24 @@ async def batch_scrape_g2_categories(
                     serper_products = await discover_g2_category(
                         client, slug, name, max_per_category, semaphore
                     )
+                    added = 0
                     for p in serper_products:
                         product_slug = _extract_product_slug(p.get("g2_url", ""))
                         if product_slug and product_slug not in seen_slugs:
                             seen_slugs.add(product_slug)
                             all_products.append({**p, "g2_category": slug})
+                            added += 1
+                    discovered_via = "serper" if slug not in scraped_ok else "both"
+                    logger.info(
+                        "G2 PATH: category=%s discovered_via=%s products=%d added_unique=%d",
+                        slug, discovered_via, len(serper_products), added,
+                    )
                 except Exception as exc:
                     logger.warning("G2 Serper fallback failed for %s: %s", slug, exc)
+                    logger.info(
+                        "G2 PATH: category=%s discovered_via=none (scrape failed, serper raised)",
+                        slug,
+                    )
 
     logger.info("G2 BATCH: %d unique companies from %d categories", len(all_products), len(categories))
     return all_products

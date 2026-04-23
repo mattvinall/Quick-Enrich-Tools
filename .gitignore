@@ -25,3 +25,6 @@ Thumbs.db
 
 # Redis
 dump.rdb
+
+# Playwright MCP scratch output
+.playwright-mcp/

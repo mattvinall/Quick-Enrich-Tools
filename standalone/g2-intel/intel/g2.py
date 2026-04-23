@@ -1,4 +1,4 @@
-"""Discover products in a G2 category: scrape.do (super+render) → Serper fallback."""
+"""Discover products in a G2 category: scrape.do (super+render) -> Serper fallback."""
 
 import asyncio
 import logging
@@ -58,47 +58,105 @@ async def discover_via_scrape(client: httpx.AsyncClient, slug: str) -> list[dict
     for super_proxy in (True, False):
         try:
             html = await scrape_page(client, url, render=True, super_proxy=super_proxy, block_resources=False)
+            has_cards = (
+                "data-product-id" in html
+                or "product-listing__card" in html
+                or "paper--product" in html
+            )
             products = _parse_g2_html(html)
+            logger.info(
+                "G2 SCRAPE: category=%s super=%s body_len=%d cards_present=%s parsed=%d",
+                slug, super_proxy, len(html), has_cards, len(products),
+            )
             if products:
-                logger.info("G2 SCRAPE: %s → %d products (super=%s)", slug, len(products), super_proxy)
                 return products
+            # No cards -> DataDome shell. Try next pass.
         except Exception as exc:
-            logger.warning("G2 scrape fail %s (super=%s): %s: %s", slug, super_proxy, type(exc).__name__, exc)
+            logger.warning(
+                "G2 SCRAPE fail: category=%s super=%s err=%s: %s",
+                slug, super_proxy, type(exc).__name__, exc,
+            )
+    logger.info("G2 SCRAPE: category=%s -> scrape_failed=true", slug)
     return None
 
 
 async def discover_via_serper(client: httpx.AsyncClient, slug: str, category_name: str) -> list[dict]:
-    """Fallback: search Google for G2 product URLs. Returns what the index coughs up (often ~10)."""
+    """Fallback: search Google for G2 product URLs with query expansion + pagination.
+
+    Google's `site:g2.com/products` index is shallow per-query, so we use a
+    diverse query set and paginate each. Standalone pilot hardcodes pages_per_query=3
+    (mirrors backend `settings.g2_serper_pages_per_query`).
+    """
+    pages_per_query = 3  # hardcoded; backend uses settings.g2_serper_pages_per_query
     queries = [
         f'site:g2.com/products "{category_name}"',
         f'site:g2.com/products {category_name} software reviews',
         f'site:g2.com/products best {category_name} tools',
         f'site:g2.com/products top {category_name} software',
+        f'site:g2.com/products "{category_name}" platform',
+        f'site:g2.com/products "{category_name}" vendor',
+        f'site:g2.com/products "G2 Grid" "{category_name}"',
+        f'site:g2.com/products "{category_name}" 2026',
+        f'site:g2.com/products "{category_name}" software company',
+        f'site:g2.com/products "{category_name}" pricing',
     ]
+
+    sem = asyncio.Semaphore(5)
+
+    async def _run(query: str, page: int) -> tuple[str, int, list[dict]]:
+        async with sem:
+            try:
+                results = await serper_search(client, query, num=100, page=page)
+                return query, page, results
+            except Exception as exc:
+                logger.warning(
+                    "G2 SERPER fail: query='%s' page=%d err=%s: %s",
+                    query, page, type(exc).__name__, exc,
+                )
+                return query, page, []
+
+    tasks = [_run(q, p) for q in queries for p in range(1, pages_per_query + 1)]
+    pairs = await asyncio.gather(*tasks)
+
     products: list[dict] = []
     seen: set[str] = set()
-    for q in queries:
-        try:
-            results = await serper_search(client, q, num=100)
-        except Exception as exc:
-            logger.warning("G2 serper query fail: %s: %s", type(exc).__name__, exc)
-            continue
+    per_query_raw: dict[str, int] = {}
+    per_query_slugs: dict[str, set[str]] = {q: set() for q in queries}
+
+    for query, page, results in pairs:
+        per_query_raw[query] = per_query_raw.get(query, 0) + len(results)
+        logger.info(
+            "G2 SERPER: category=%s query='%s' page=%d -> %d raw results",
+            slug, query, page, len(results),
+        )
         for r in results:
             link = r.get("link", "")
             if "g2.com/products/" not in link:
                 continue
             slug_p = _slug_from_url(link)
-            if not slug_p or slug_p in seen:
+            if not slug_p:
                 continue
             path = urlparse(link).path.lower()
             if any(x in path for x in ("/competitors", "/compare", "/alternatives")):
+                continue
+            per_query_slugs[query].add(slug_p)
+            if slug_p in seen:
                 continue
             name = _clean_name(r.get("title", ""))
             if not name or len(name) < 2:
                 continue
             seen.add(slug_p)
             products.append({"name": name, "g2_url": f"https://www.g2.com/products/{slug_p}", "slug": slug_p})
-        logger.info("G2 SERPER: '%s' → %d total products", q, len(products))
+
+    for q in queries:
+        logger.info(
+            "G2 SERPER SUMMARY: category=%s query='%s' raw=%d unique_slugs=%d",
+            slug, q, per_query_raw.get(q, 0), len(per_query_slugs[q]),
+        )
+    logger.info(
+        "G2 SERPER TOTAL: category=%s queries=%d pages_per_query=%d -> %d unique slugs",
+        slug, len(queries), pages_per_query, len(seen),
+    )
     return products
 
 
@@ -106,9 +164,13 @@ async def discover_category(client: httpx.AsyncClient, slug: str, category_name:
     """Discover products in a category: try scrape.do first, fall back to Serper."""
     scraped = await discover_via_scrape(client, slug)
     if scraped:
+        logger.info("G2 PATH: category=%s discovered_via=scrape products=%d", slug, len(scraped))
         return scraped
     logger.info("G2 FALLBACK to Serper for %s", slug)
-    return await discover_via_serper(client, slug, category_name)
+    serper_products = await discover_via_serper(client, slug, category_name)
+    via = "serper" if serper_products else "none"
+    logger.info("G2 PATH: category=%s discovered_via=%s products=%d", slug, via, len(serper_products))
+    return serper_products
 
 
 async def discover_categories(categories: list[tuple[str, str]], concurrency: int = 3) -> list[dict]:
