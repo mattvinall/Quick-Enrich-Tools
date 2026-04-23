@@ -19,15 +19,17 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 export function useSSE(
   jobId: string | null,
   token: string | null,
-): { progress: JobProgress | null; connected: boolean } {
+): { progress: JobProgress | null; connected: boolean; authError: boolean } {
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const [connected, setConnected] = useState(false);
+  const [authError, setAuthError] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!jobId || !token) return;
+    setAuthError(false);
 
     function isTerminal(p: JobProgress): boolean {
       return TERMINAL_STATUSES.has(p.status);
@@ -48,6 +50,11 @@ export function useSSE(
           const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
+          if (res.status === 401 || res.status === 403) {
+            stopPolling();
+            setAuthError(true);
+            return;
+          }
           if (!res.ok) return;
           const raw = await res.json();
           // Transform GET /jobs response to match SSE JobProgress shape
@@ -117,5 +124,5 @@ export function useSSE(
     };
   }, [jobId, token]);
 
-  return { progress, connected };
+  return { progress, connected, authError };
 }

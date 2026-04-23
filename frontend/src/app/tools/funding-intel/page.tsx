@@ -19,6 +19,7 @@ import {
   getFundingDownloadUrl,
   FundingCompany,
 } from '@/lib/api';
+import { isJwtExpired } from '@/lib/jwt';
 
 type Phase = 'discover' | 'configure' | 'submit' | 'processing' | 'results';
 
@@ -60,14 +61,22 @@ export default function FundingIntelPage() {
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
   const [maxContacts, setMaxContacts] = useState(3);
 
-  // Job state — restore from localStorage
+  // Job state — restore from localStorage (skip if JWT already expired)
   const [jobId, setJobId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
+    const storedToken = localStorage.getItem('qe_funding_token');
+    if (storedToken && isJwtExpired(storedToken)) {
+      localStorage.removeItem('qe_funding_job_id');
+      localStorage.removeItem('qe_funding_token');
+      return null;
+    }
     return localStorage.getItem('qe_funding_job_id');
   });
   const [token, setToken] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('qe_funding_token');
+    const storedToken = localStorage.getItem('qe_funding_token');
+    if (storedToken && isJwtExpired(storedToken)) return null;
+    return storedToken;
   });
 
   // Submit state
@@ -90,7 +99,7 @@ export default function FundingIntelPage() {
   }, []);
 
   // SSE
-  const { progress } = useSSE(
+  const { progress, authError } = useSSE(
     phase === 'processing' ? jobId : null,
     phase === 'processing' ? token : null,
   );
@@ -101,6 +110,14 @@ export default function FundingIntelPage() {
       navigate('results');
     }
   }, [phase, progress?.status]);
+
+  // Recover from expired job session
+  useEffect(() => {
+    if (authError) {
+      clearSession();
+      navigate('discover');
+    }
+  }, [authError]);
 
   function navigate(next: Phase) {
     setDirection(phaseIndex(next) >= phaseIndex(phase) ? 'forward' : 'back');

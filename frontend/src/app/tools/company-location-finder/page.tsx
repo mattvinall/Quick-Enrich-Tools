@@ -15,6 +15,7 @@ import LivePreview from '@/components/LivePreview';
 import ResultsPanel from '@/components/ResultsPanel';
 import { useSSE } from '@/hooks/useSSE';
 import { captureEmail, uploadCSV } from '@/lib/api';
+import { isJwtExpired } from '@/lib/jwt';
 
 // ---------------------------------------------------------------------------
 // Phase state machine
@@ -76,14 +77,22 @@ export default function CompanyLocationFinderPage() {
   const [jobTitles, setJobTitles] = useState<string[]>([]);
   const [maxContacts, setMaxContacts] = useState(3);
 
-  // Job / auth — restore from localStorage if available
+  // Job / auth — restore from localStorage if available (skip if JWT already expired)
   const [jobId, setJobId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
+    const storedToken = localStorage.getItem("qe_token");
+    if (storedToken && isJwtExpired(storedToken)) {
+      localStorage.removeItem("qe_job_id");
+      localStorage.removeItem("qe_token");
+      return null;
+    }
     return localStorage.getItem("qe_job_id");
   });
   const [token, setToken] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem("qe_token");
+    const storedToken = localStorage.getItem("qe_token");
+    if (storedToken && isJwtExpired(storedToken)) return null;
+    return storedToken;
   });
 
   // Submit state
@@ -109,7 +118,7 @@ export default function CompanyLocationFinderPage() {
   }, []);
 
   // SSE progress
-  const { progress } = useSSE(
+  const { progress, authError } = useSSE(
     phase === 'processing' ? jobId : null,
     phase === 'processing' ? token : null,
   );
@@ -120,6 +129,14 @@ export default function CompanyLocationFinderPage() {
       navigate('results');
     }
   }, [phase, progress?.status]);
+
+  // Recover from expired job session
+  useEffect(() => {
+    if (authError) {
+      clearSession();
+      navigate('input');
+    }
+  }, [authError]);
 
   function navigate(next: Phase) {
     setDirection(phaseIndex(next) >= phaseIndex(phase) ? 'forward' : 'back');

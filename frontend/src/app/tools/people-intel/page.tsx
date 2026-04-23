@@ -16,6 +16,7 @@ import LivePreview from '@/components/LivePreview';
 import ResultsPanel from '@/components/ResultsPanel';
 import { useSSE } from '@/hooks/useSSE';
 import { captureEmail, submitPeopleExtraction, getPeopleDownloadUrl, type PeopleItem } from '@/lib/api';
+import { isJwtExpired } from '@/lib/jwt';
 
 type Phase = 'input' | 'configure' | 'submit' | 'processing' | 'results';
 
@@ -148,14 +149,22 @@ export default function PeopleIntelPage() {
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
   const [maxContacts, setMaxContacts] = useState(3);
 
-  // Job state — restore from localStorage
+  // Job state — restore from localStorage (skip if JWT already expired)
   const [jobId, setJobId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
+    const storedToken = localStorage.getItem('qe_people_token');
+    if (storedToken && isJwtExpired(storedToken)) {
+      localStorage.removeItem('qe_people_job_id');
+      localStorage.removeItem('qe_people_token');
+      return null;
+    }
     return localStorage.getItem('qe_people_job_id');
   });
   const [token, setToken] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('qe_people_token');
+    const storedToken = localStorage.getItem('qe_people_token');
+    if (storedToken && isJwtExpired(storedToken)) return null;
+    return storedToken;
   });
 
   // Submit state
@@ -178,7 +187,7 @@ export default function PeopleIntelPage() {
   }, []);
 
   // SSE
-  const { progress } = useSSE(
+  const { progress, authError } = useSSE(
     phase === 'processing' ? jobId : null,
     phase === 'processing' ? token : null,
   );
@@ -189,6 +198,14 @@ export default function PeopleIntelPage() {
       navigate('results');
     }
   }, [phase, progress?.status]);
+
+  // Recover from expired job session
+  useEffect(() => {
+    if (authError) {
+      clearSession();
+      navigate('input');
+    }
+  }, [authError]);
 
   function navigate(next: Phase) {
     setDirection(phaseIndex(next) >= phaseIndex(phase) ? 'forward' : 'back');
