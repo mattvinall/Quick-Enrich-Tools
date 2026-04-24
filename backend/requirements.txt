@@ -7,7 +7,6 @@ python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
 httpx>=0.28.1
 tldextract==5.1.2
-arq==0.26.1
 redis[hiredis]==5.1.0
 resend==2.4.0
 google-generativeai==0.8.0

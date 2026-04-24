@@ -11,10 +11,13 @@ def test_pipeline_has_required_functions():
     assert inspect.iscoroutinefunction(pipeline.run_pipeline)
 
 
-def test_worker_settings_exist():
-    """WorkerSettings must still be importable for ARQ."""
-    from app.workers.pipeline import WorkerSettings
+def test_no_arq_worker_settings():
+    """ARQ was removed (Upstash incompatibility); pipeline dispatch is now
+    asyncio.create_task directly from the routers. Guard against WorkerSettings
+    being re-introduced without intent."""
+    from app.workers import pipeline
 
-    assert hasattr(WorkerSettings, "functions")
-    assert hasattr(WorkerSettings, "max_jobs")
-    assert WorkerSettings.max_jobs == 5
+    assert not hasattr(pipeline, "WorkerSettings"), (
+        "WorkerSettings resurfaced — if re-adopting ARQ, update the routers' "
+        "dispatch paths and update this test."
+    )

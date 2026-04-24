@@ -18,6 +18,7 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
+from app.routers._job_errors import make_failure_callback
 from app.services.g2_categories import (
     get_all_categories,
     get_all_parents,
@@ -137,12 +138,8 @@ async def submit_g2_extraction(
     # Run pipeline as background task (same pattern as intel.py)
     from app.workers.g2_pipeline import run_g2_pipeline
 
-    def _on_done(t: asyncio.Task) -> None:
-        if not t.cancelled() and t.exception():
-            logger.error("Pipeline failed for job %s: %s", job.id, t.exception())
-
     task = asyncio.create_task(run_g2_pipeline({}, str(job.id)))
-    task.add_done_callback(_on_done)
+    task.add_done_callback(make_failure_callback(job.id, logger, "G2 pipeline"))
 
     new_token = create_token(email, str(job.id))
     return {
