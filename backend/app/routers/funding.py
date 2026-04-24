@@ -235,8 +235,23 @@ _BATCH_SIZE = 500
 _FUNDING_COLUMNS = [
     "company_name", "funding_amount", "funding_round", "lead_investor",
     "funding_description", "source_url", "source_name", "website", "status",
+    "intel_extracted",
 ]
 _CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
+
+
+def _intel_extracted_flag(extracted: dict) -> str:
+    """True when the homepage scrape + LLM produced at least one intel field.
+
+    A row marked status='enriched' only guarantees QuickEnrich returned contacts;
+    the LLM extraction can still have produced empty fields when the homepage was
+    a JS shell or otherwise content-thin. This flag tells the user which rows
+    have full company intel vs contacts-only.
+    """
+    if not isinstance(extracted, dict):
+        return "false"
+    intel_keys = ("industry", "niche", "description", "target_market", "case_studies", "homepage_raw_text")
+    return "true" if any(extracted.get(k) for k in intel_keys) else "false"
 
 
 def _extract_funding_rows(result: JobResult, options: dict) -> list[list[str]]:
@@ -254,6 +269,7 @@ def _extract_funding_rows(result: JobResult, options: dict) -> list[list[str]]:
         str(input_data.get("source_name", "")),
         result.normalized_domain or result.raw_domain or "",
         result.status,
+        _intel_extracted_flag(extracted),
     ]
 
     intel_cells: list[str] = []

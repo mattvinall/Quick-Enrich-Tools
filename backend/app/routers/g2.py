@@ -161,8 +161,16 @@ def _sanitize_csv(value: str) -> str:
 
 
 _BATCH_SIZE = 500
-_BASE_COLUMNS = ["g2_category", "g2_url", "g2_rating", "g2_review_count", "input", "website", "status"]
+_BASE_COLUMNS = ["g2_category", "g2_url", "g2_rating", "g2_review_count", "input", "website", "status", "intel_extracted"]
 _CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "mobile", "linkedin"]
+
+
+def _intel_extracted_flag(extracted: dict) -> str:
+    """True when homepage scrape + LLM produced any intel field. See funding.py for context."""
+    if not isinstance(extracted, dict):
+        return "false"
+    intel_keys = ("industry", "niche", "description", "target_market", "case_studies", "homepage_raw_text")
+    return "true" if any(extracted.get(k) for k in intel_keys) else "false"
 
 
 def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
@@ -178,7 +186,7 @@ def _extract_g2_rows(result: JobResult, options: dict) -> list[list[str]]:
     website = result.normalized_domain or result.raw_domain or ""
     row_status = result.status
 
-    base = [g2_category, g2_url, g2_rating, g2_review_count, original_input, website, row_status]
+    base = [g2_category, g2_url, g2_rating, g2_review_count, original_input, website, row_status, _intel_extracted_flag(extracted)]
 
     intel_cells: list[str] = []
     if options.get("industry_description"):

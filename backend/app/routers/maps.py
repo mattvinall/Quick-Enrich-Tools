@@ -204,9 +204,17 @@ _BATCH_SIZE = 500
 _MAPS_COLUMNS = [
     "search_term", "location", "business_name", "category",
     "maps_address", "maps_phone", "website", "rating", "review_count",
-    "latitude", "longitude", "google_maps_url", "status",
+    "latitude", "longitude", "google_maps_url", "status", "intel_extracted",
 ]
 _CONTACT_COLUMNS = ["contact_title", "first_name", "last_name", "email", "phone", "linkedin"]
+
+
+def _intel_extracted_flag(extracted: dict) -> str:
+    """True when homepage scrape + LLM produced any intel field. See funding.py for context."""
+    if not isinstance(extracted, dict):
+        return "false"
+    intel_keys = ("industry", "niche", "description", "target_market", "case_studies", "homepage_raw_text")
+    return "true" if any(extracted.get(k) for k in intel_keys) else "false"
 
 
 def _extract_maps_rows(result: JobResult, options: dict) -> list[list[str]]:
@@ -228,6 +236,7 @@ def _extract_maps_rows(result: JobResult, options: dict) -> list[list[str]]:
         str(input_data.get("longitude") or ""),
         str(input_data.get("google_maps_url", "")),
         result.status,
+        _intel_extracted_flag(extracted),
     ]
 
     intel_cells: list[str] = []

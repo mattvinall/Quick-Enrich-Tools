@@ -138,8 +138,16 @@ async def submit_people_extraction(
 # ── CSV Download ─────────────────────────────────────────────────────
 
 _BATCH_SIZE = 500
-_BASE_COLUMNS = ["full_name", "company_name", "linkedin_url", "linkedin_confidence", "website", "status"]
+_BASE_COLUMNS = ["full_name", "company_name", "linkedin_url", "linkedin_confidence", "website", "status", "intel_extracted"]
 _CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
+
+
+def _intel_extracted_flag(extracted: dict) -> str:
+    """True when homepage scrape + LLM produced any intel field. See funding.py for context."""
+    if not isinstance(extracted, dict):
+        return "false"
+    intel_keys = ("industry", "niche", "description", "target_market", "case_studies", "homepage_raw_text")
+    return "true" if any(extracted.get(k) for k in intel_keys) else "false"
 
 
 def _sanitize_csv(value: str) -> str:
@@ -163,7 +171,7 @@ def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5)
     website = result.normalized_domain or result.raw_domain or ""
     row_status = result.status
 
-    base = [full_name, company_name, linkedin_url, confidence_str, website, row_status]
+    base = [full_name, company_name, linkedin_url, confidence_str, website, row_status, _intel_extracted_flag(extracted)]
 
     intel_cells: list[str] = []
     if options.get("industry_description"):

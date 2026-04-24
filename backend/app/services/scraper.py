@@ -22,7 +22,10 @@ from app.services.retry import retry_async
 logger = logging.getLogger(__name__)
 
 _MAX_TEXT_PER_PAGE = 8_000
-_MIN_CONTENT_LENGTH = 200  # Minimum chars to consider a scrape successful
+_MIN_CONTENT_LENGTH = 1500  # Below this, escalate to render+super proxy.
+# Modern SPAs return 200-500 chars of React shell HTML on a basic fetch (nav,
+# footer, no real content). Bump the threshold so those sites trigger Pass 2/3
+# instead of silently feeding empty text to the LLM.
 
 # Page URL patterns scored by relevance category
 _HIGH_PATTERNS = re.compile(
