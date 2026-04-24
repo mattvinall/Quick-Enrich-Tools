@@ -31,37 +31,46 @@ async def test_search_company_requests_num_100(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_batch_search_maps_expands_to_nearby_cities(monkeypatch):
-    """batch_search_maps should fan out to nearby cities parsed from seed addresses
-    and return more than the 20-per-call Serper cap."""
-    call_locations: list[str] = []
+async def test_batch_search_maps_expands_via_latlng_tiles(monkeypatch):
+    """batch_search_maps should fan out via lat/lng tiles and return more than
+    the 20-per-call Serper cap — using only lat/lng fields (no address parsing)
+    so the behavior is country-agnostic."""
+    calls: list[tuple[str, str | None]] = []  # (location, ll)
 
-    async def fake_search_maps(client, query, location="", api_key=None, page=1):
-        call_locations.append(location)
-        if location == "Austin, TX":
-            # Seed page: 20 places whose addresses point at nearby Austin-area cities
-            cities = ["Round Rock", "Cedar Park", "Pflugerville"]
-            places = [
+    def _seed_places():
+        # 20 seed places scattered across ~5km around Austin downtown.
+        # Addresses are in a non-US format to prove the fan-out doesn't depend
+        # on address parsing (which a prior US-only regex version did).
+        return [
+            {
+                "title": f"Seed{i}",
+                "placeId": f"seed-{i}",
+                "latitude": 30.2672 + (i - 10) * 0.003,
+                "longitude": -97.7431 + (i - 10) * 0.003,
+                "address": f"{i} Rua Principal, Austin district, no country",
+            }
+            for i in range(20)
+        ]
+
+    async def fake_search_maps(client, query, location="", ll=None, api_key=None, page=1):
+        calls.append((location, ll))
+        if ll is None:
+            # Seed call anchored by text location
+            return {"query": query, "places": _seed_places()}
+        # Tile call — return 20 fresh places unique to this ll
+        return {
+            "query": query,
+            "places": [
                 {
-                    "title": f"Biz{i}",
-                    "placeId": f"seed-{i}",
-                    "website": f"biz{i}.com",
-                    "address": f"{100+i} Main St, {cities[i % len(cities)]}, TX 78701",
+                    "title": f"{ll}-Biz{i}",
+                    "placeId": f"{ll}-{i}",
+                    "latitude": 30.27 + i * 0.0001,
+                    "longitude": -97.74 + i * 0.0001,
+                    "address": f"{i} somewhere",
                 }
                 for i in range(20)
-            ]
-        else:
-            # Expansion call: return a fresh set of 20 places unique to this city
-            places = [
-                {
-                    "title": f"{location}-Biz{i}",
-                    "placeId": f"{location}-{i}",
-                    "website": f"{location.lower().replace(' ', '')}-biz{i}.com",
-                    "address": f"{i} Elm St, {location} 78664",
-                }
-                for i in range(20)
-            ]
-        return {"query": query, "places": places}
+            ],
+        }
 
     monkeypatch.setattr("app.services.serper.search_maps", fake_search_maps)
 
@@ -70,14 +79,18 @@ async def test_batch_search_maps_expands_to_nearby_cities(monkeypatch):
         max_per_search=100,
     )
 
-    # First call is the seed, subsequent calls are the fan-out cities
-    assert call_locations[0] == "Austin, TX"
-    nearby_calls = [loc for loc in call_locations[1:] if loc]
-    assert nearby_calls, f"expected fan-out calls after seed, got: {call_locations}"
-    # Should have called at least two different nearby cities (parsed from seed addresses)
-    assert len(set(nearby_calls)) >= 2, (
-        f"expected fan-out to multiple nearby cities, got: {nearby_calls}"
-    )
+    # First call is the text-location seed (no ll)
+    assert calls[0] == ("Austin, TX", None)
+    # Subsequent calls should all use ll (the fan-out tiles)
+    tile_lls = [ll for (_loc, ll) in calls[1:] if ll is not None]
+    assert tile_lls, f"expected lat/lng fan-out after seed, got: {calls}"
+    # Multiple distinct tiles
+    assert len(set(tile_lls)) >= 2, f"expected multiple distinct tiles, got: {tile_lls}"
+    # Every tile should be a proper @lat,lng,zoom string
+    for ll in tile_lls:
+        assert ll.startswith("@") and ll.endswith("z") and ll.count(",") == 2, (
+            f"malformed ll: {ll}"
+        )
     # Final result should exceed a single call's 20 cap
     assert len(result) > 20, f"expected >20 deduped places after fan-out, got {len(result)}"
 
@@ -85,29 +98,35 @@ async def test_batch_search_maps_expands_to_nearby_cities(monkeypatch):
 @pytest.mark.asyncio
 async def test_batch_search_maps_stops_at_max_per_search(monkeypatch):
     """Fan-out must stop once max_per_search is reached."""
-    call_locations: list[str] = []
+    call_count = [0]
 
-    async def fake_search_maps(client, query, location="", api_key=None, page=1):
-        call_locations.append(location)
-        if location == "Austin, TX":
-            places = [
+    async def fake_search_maps(client, query, location="", ll=None, api_key=None, page=1):
+        call_count[0] += 1
+        if ll is None:
+            return {
+                "query": query,
+                "places": [
+                    {
+                        "title": f"Seed{i}",
+                        "placeId": f"seed-{i}",
+                        "latitude": 30.27 + i * 0.01,
+                        "longitude": -97.74 + i * 0.01,
+                    }
+                    for i in range(20)
+                ],
+            }
+        return {
+            "query": query,
+            "places": [
                 {
-                    "title": f"Seed{i}",
-                    "placeId": f"seed-{i}",
-                    "address": f"{i} Main St, Round Rock, TX 78664",
+                    "title": f"{ll}-{i}",
+                    "placeId": f"{ll}-{i}",
+                    "latitude": 30.27,
+                    "longitude": -97.74,
                 }
                 for i in range(20)
-            ]
-        else:
-            places = [
-                {
-                    "title": f"{location}-{i}",
-                    "placeId": f"{location}-{i}",
-                    "address": f"{i} Oak, {location} 78664",
-                }
-                for i in range(20)
-            ]
-        return {"query": query, "places": places}
+            ],
+        }
 
     monkeypatch.setattr("app.services.serper.search_maps", fake_search_maps)
 
@@ -116,5 +135,34 @@ async def test_batch_search_maps_stops_at_max_per_search(monkeypatch):
         max_per_search=25,
     )
 
-    # We got at least the 20 seed results; fan-out fired to fill to 25
     assert 20 <= len(result) <= 25, f"expected 20-25 results with cap=25, got {len(result)}"
+
+
+@pytest.mark.asyncio
+async def test_batch_search_maps_tiles_respect_radius_cap(monkeypatch):
+    """Tiles should not drift beyond maps_expansion_max_radius_km from the seed
+    centroid, even if the seed includes a far-away outlier."""
+    from app.services.serper import _tile_centers_from_seed
+
+    # Seed with a tight Miami cluster plus one outlier 300km north (near Orlando).
+    # The cluster centroid should dominate; outlier-chasing should be clamped.
+    seed = [
+        {"latitude": 25.77, "longitude": -80.19},
+        {"latitude": 25.80, "longitude": -80.21},
+        {"latitude": 25.74, "longitude": -80.17},
+        {"latitude": 25.79, "longitude": -80.13},
+        {"latitude": 28.54, "longitude": -81.38},  # Orlando — 300km away
+    ]
+    tiles = _tile_centers_from_seed(seed, max_tiles=6, max_radius_km=50.0)
+    centroid_lat = sum(s["latitude"] for s in seed) / len(seed)
+    centroid_lng = sum(s["longitude"] for s in seed) / len(seed)
+    # Every tile should be within ~50km of the centroid
+    for lat, lng in tiles:
+        dlat_km = abs(lat - centroid_lat) * 111.0
+        # Longitude scales with cosine of centroid's latitude
+        import math
+        dlng_km = abs(lng - centroid_lng) * 111.0 * math.cos(math.radians(centroid_lat))
+        dist_km = math.hypot(dlat_km, dlng_km)
+        assert dist_km <= 75.0, (  # some slack for grid corners + pad
+            f"tile ({lat}, {lng}) is {dist_km:.1f}km from centroid; exceeded radius cap"
+        )

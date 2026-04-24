@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import re
+import math
 from urllib.parse import urlparse
 
 import httpx
@@ -11,42 +11,91 @@ from app.services.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
-# Matches the "City, ST 12345" tail of a US address. Capture groups: city, state.
-# Anchored to the ZIP so we don't grab street-address fragments like "SW 32nd Ave".
-_CITY_STATE_RE = re.compile(r"([A-Z][A-Za-z .\-']{1,40}),\s*([A-Z]{2})\s+\d{5}")
+
+_EARTH_KM_PER_LAT_DEG = 111.0  # 1° latitude ≈ 111 km globally (varies 110.6–111.7)
 
 
-def _extract_nearby_cities(
+def _tile_centers_from_seed(
     places: list[dict[str, object]],
-    exclude_location: str,
-    limit: int,
-) -> list[str]:
-    """Mine Google Maps addresses for unique 'City, ST' tuples to fan out to.
+    max_tiles: int,
+    max_radius_km: float,
+) -> list[tuple[float, float]]:
+    """Compute lat/lng tile centers to fan out around a seed Maps result set.
 
-    Excludes any candidate whose text overlaps the user's original location
-    (case-insensitive) so we don't waste a call re-fetching what we already
-    pulled. Returns cities ordered by how often they appear in the seed
-    results (most frequent first), tie-broken alphabetically.
+    Uses only latitude/longitude (fields Serper /maps returns on every place),
+    so this works for any country — no address-parsing, no US-only assumptions.
+
+    The seed's bounding box is padded ~30% then clamped so no tile can drift
+    farther than max_radius_km from the seed centroid. This prevents stray
+    outlier places in the seed (or genuinely huge user inputs like a state
+    name) from pulling results in from far-away regions. Longitude scaling
+    uses cos(latitude) so the radius stays roughly isotropic near the poles.
+
+    Returns [] when the seed has no usable coords — callers fall back to
+    single-call behavior.
     """
-    exclude = exclude_location.strip().lower()
-    counts: dict[str, int] = {}
+    coords: list[tuple[float, float]] = []
     for p in places:
-        address = str(p.get("address") or "")
-        match = _CITY_STATE_RE.search(address)
-        if not match:
-            continue
-        city = match.group(1).strip()
-        state = match.group(2).strip()
-        candidate = f"{city}, {state}"
-        cand_lower = candidate.lower()
-        # Skip when user's input location is already this city or contains it
-        # ("Miami, FL" should not re-query "Miami, FL" or "Miami")
-        if exclude and (exclude in cand_lower or cand_lower in exclude or
-                        city.lower() in exclude):
-            continue
-        counts[candidate] = counts.get(candidate, 0) + 1
-    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    return [c for c, _ in ordered[:limit]]
+        lat = p.get("latitude")
+        lng = p.get("longitude")
+        if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+            coords.append((float(lat), float(lng)))
+
+    if len(coords) < 2 or max_tiles < 1:
+        return []
+
+    # Centroid of seed places; tiles can't drift beyond max_radius_km of this.
+    centroid_lat = sum(c[0] for c in coords) / len(coords)
+    centroid_lng = sum(c[1] for c in coords) / len(coords)
+
+    # Convert max radius to degrees. Longitude-per-km shrinks with |latitude|;
+    # floor cos() at 0.1 so we don't divide by ~0 near the poles.
+    max_lat_delta = max_radius_km / _EARTH_KM_PER_LAT_DEG
+    max_lng_delta = max_radius_km / (
+        _EARTH_KM_PER_LAT_DEG * max(0.1, math.cos(math.radians(centroid_lat)))
+    )
+
+    lats = [c[0] for c in coords]
+    lngs = [c[1] for c in coords]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lng, max_lng = min(lngs), max(lngs)
+
+    # Pad ~30% to reach adjacent neighborhoods.
+    lat_pad = max(0.02, (max_lat - min_lat) * 0.15)
+    lng_pad = max(0.02, (max_lng - min_lng) * 0.15)
+    min_lat -= lat_pad
+    max_lat += lat_pad
+    min_lng -= lng_pad
+    max_lng += lng_pad
+
+    # Clamp the padded box to the radius cap around the centroid.
+    min_lat = max(min_lat, centroid_lat - max_lat_delta)
+    max_lat = min(max_lat, centroid_lat + max_lat_delta)
+    min_lng = max(min_lng, centroid_lng - max_lng_delta)
+    max_lng = min(max_lng, centroid_lng + max_lng_delta)
+
+    # Square-ish grid sized to fit the tile budget (6 → 2×3, 9 → 3×3, 4 → 2×2).
+    rows = max(1, math.isqrt(max_tiles))
+    cols = rows if rows * rows >= max_tiles else rows + 1
+    lat_denom = max(1, rows - 1)
+    lng_denom = max(1, cols - 1)
+
+    tiles: list[tuple[float, float]] = []
+    for i in range(rows):
+        for j in range(cols):
+            lat = (min_lat + (max_lat - min_lat) * (i / lat_denom)
+                   if lat_denom > 0 else (min_lat + max_lat) / 2)
+            lng = (min_lng + (max_lng - min_lng) * (j / lng_denom)
+                   if lng_denom > 0 else (min_lng + max_lng) / 2)
+            tiles.append((lat, lng))
+            if len(tiles) >= max_tiles:
+                return tiles
+    return tiles
+
+
+def _format_ll(lat: float, lng: float, zoom: int = 12) -> str:
+    """Format a lat/lng as Serper's `ll` param: '@lat,lng,zoom'."""
+    return f"@{lat:.6f},{lng:.6f},{zoom}z"
 
 
 def _parse_domain(url: str) -> str:
@@ -197,24 +246,42 @@ async def search_maps(
     client: httpx.AsyncClient,
     query: str,
     location: str = "",
+    ll: str | None = None,
     api_key: str | None = None,
     page: int = 1,
 ) -> dict[str, object]:
     """Search Google Maps via the Serper /maps endpoint for a single page.
 
+    Either `location` (text) or `ll` (an '@lat,lng,zoom' string) anchors the
+    geographic area. When `ll` is provided we omit the 'in {location}' suffix
+    from the query so Google treats `ll` as the authority on WHERE to search.
+
     Returns a dict with keys: query, places (list of place dicts), page.
-    Results are cached by query + location + page for 3 days.
+    Results are cached by query + location + ll + page for 3 days.
     """
-    search_query = f"{query} in {location}" if location else query
-    cache_key = make_cache_key("serper_maps", search_query.lower(), f"p{page}")
+    if ll:
+        search_query = query
+    else:
+        search_query = f"{query} in {location}" if location else query
+    cache_key = make_cache_key(
+        "serper_maps", search_query.lower(), ll or "", f"p{page}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
-        logger.info("SERPER MAPS CACHE HIT: %s page=%d", search_query, page)
+        logger.info(
+            "SERPER MAPS CACHE HIT: %s ll=%s page=%d",
+            search_query, ll or "-", page,
+        )
         return cached
 
-    logger.info("SERPER MAPS SEARCH: %s page=%d", search_query, page)
+    logger.info(
+        "SERPER MAPS SEARCH: %s ll=%s page=%d",
+        search_query, ll or "-", page,
+    )
 
     body: dict[str, object] = {"q": search_query, "hl": "en"}
+    if ll:
+        body["ll"] = ll
     if page > 1:
         body["page"] = page
 
@@ -255,18 +322,23 @@ async def batch_search_maps(
     limit = concurrency if concurrency is not None else settings.serper_concurrency
     per_search_cap = max_per_search if max_per_search is not None else settings.maps_max_per_search
     semaphore = asyncio.Semaphore(limit)
-    expand = settings.maps_expand_to_nearby_cities
-    expansion_cap = settings.maps_expansion_max_cities
+    expand = settings.maps_expand_nearby
+    expansion_cap = settings.maps_expansion_max_tiles
+    expansion_radius_km = settings.maps_expansion_max_radius_km
 
     async with httpx.AsyncClient() as client:
 
-        async def _call_maps(term: str, location_str: str) -> list[dict[str, object]]:
+        async def _call_maps(
+            term: str,
+            location_str: str = "",
+            ll: str | None = None,
+        ) -> list[dict[str, object]]:
             """Single /maps call with retry + semaphore. Returns [] on failure."""
             async with semaphore:
                 try:
                     result = await retry_async(
-                        lambda l=location_str: search_maps(
-                            client, term, l, api_key=api_key, page=1
+                        lambda l=location_str, coord=ll: search_maps(
+                            client, term, l, ll=coord, api_key=api_key, page=1,
                         ),
                         max_retries=3,
                         base_delay=1.0,
@@ -274,8 +346,8 @@ async def batch_search_maps(
                     return result.get("places") or []
                 except Exception as exc:
                     logger.warning(
-                        "Maps search failed for '%s in %s': %s",
-                        term, location_str, exc,
+                        "Maps search failed for '%s' loc='%s' ll=%s: %s",
+                        term, location_str, ll or "-", exc,
                     )
                     return []
 
@@ -301,30 +373,38 @@ async def batch_search_maps(
                         return True
                 return False
 
-            # Phase 1: primary call with the user's location.
-            initial = await _call_maps(term, loc)
+            # Phase 1: primary call with the user's location text.
+            initial = await _call_maps(term, location_str=loc)
             if _ingest(initial) or not initial:
                 return term, loc, collected
 
-            # Phase 2: fan out to nearby cities mined from initial addresses.
-            # Serper /maps caps at 20 per call and page 2+ is empirically empty,
-            # so the only way to exceed 20 is to vary the location parameter.
-            if not expand or not loc:
+            # Phase 2: fan out to a lat/lng grid centered on the seed results.
+            # Serper /maps caps at 20 per call regardless of num/page/zoom, so
+            # the only way to exceed 20 is to vary the geographic anchor.
+            # Lat/lng grid works globally (no country-specific address parsing)
+            # and is clamped to max_radius_km of the seed centroid so tiles
+            # can't drift into unrelated regions even when the seed has
+            # outliers or the user's input covers a huge area.
+            if not expand:
                 return term, loc, collected
 
-            nearby_cities = _extract_nearby_cities(
-                initial, exclude_location=loc, limit=expansion_cap,
+            tile_centers = _tile_centers_from_seed(
+                initial,
+                max_tiles=expansion_cap,
+                max_radius_km=expansion_radius_km,
             )
-            if not nearby_cities:
+            if not tile_centers:
                 return term, loc, collected
 
+            tile_lls = [_format_ll(lat, lng) for lat, lng in tile_centers]
             logger.info(
-                "MAPS EXPAND: term='%s' base='%s' seed=%d unique, fanning out to %d nearby: %s",
-                term, loc, len(collected), len(nearby_cities), nearby_cities,
+                "MAPS EXPAND: term='%s' base='%s' seed=%d unique, %d tiles within %.0fkm: %s",
+                term, loc, len(collected), len(tile_lls),
+                expansion_radius_km, tile_lls,
             )
 
             expansions = await asyncio.gather(
-                *[_call_maps(term, city) for city in nearby_cities]
+                *[_call_maps(term, ll=coord) for coord in tile_lls]
             )
             for places in expansions:
                 if _ingest(places):

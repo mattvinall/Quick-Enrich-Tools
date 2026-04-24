@@ -19,8 +19,9 @@ class Settings(BaseSettings):
     max_rows: int = 100_000
     maps_max_per_search: int = 100  # upper bound per search term; Serper /maps returns up to 20 per page so we paginate
     maps_max_pages_per_search: int = 5  # safety cap on pagination depth (page 2+ is empirically empty on Serper /maps)
-    maps_expand_to_nearby_cities: bool = True  # fan out each search to nearby cities parsed from initial result addresses
-    maps_expansion_max_cities: int = 6  # cap on additional /maps calls per search (1 + N cities)
+    maps_expand_nearby: bool = True  # fan out each search to a lat/lng grid around the seed centroid
+    maps_expansion_max_tiles: int = 6  # cap on additional /maps calls per search (1 seed + N tiles)
+    maps_expansion_max_radius_km: float = 50.0  # hard cap on how far tiles may drift from seed centroid
     funding_news_pages_per_query: int = 3  # pages of 100 news articles per funding query
     uploads_per_email_per_day: int = 50
     uploads_per_ip_per_day: int = 50
