@@ -53,7 +53,7 @@ export default function MapsIntelPage() {
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
 
   // Contact config
-  const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Owner']);
+  const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder', 'Owner']);
   const [maxContacts, setMaxContacts] = useState(3);
 
   // Job state — restore from localStorage (skip if JWT already expired)
