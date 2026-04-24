@@ -383,6 +383,13 @@ async def discover_g2_category_via_scrape(
                 return None
             break
 
+        # Capture which slugs on THIS page are new, before we mutate seen_slugs.
+        page_slugs = {
+            _extract_product_slug(p.get("g2_url", ""))
+            for p in products
+            if _extract_product_slug(p.get("g2_url", ""))
+        }
+        new_slugs = page_slugs - seen_slugs
         for p in products:
             slug = _extract_product_slug(p.get("g2_url", ""))
             if slug and slug not in seen_slugs:
@@ -390,24 +397,23 @@ async def discover_g2_category_via_scrape(
                 all_products.append(p)
 
         logger.info(
-            "G2 SCRAPE: %s page %d -> %d products (total: %d)",
-            category_slug, page, len(products), len(all_products),
+            "G2 SCRAPE: %s page %d -> %d products, %d new (total: %d)",
+            category_slug, page, len(products), len(new_slugs), len(all_products),
         )
 
         if len(all_products) >= max_products:
             break
-        # Stop if this page added no new unique products (dedup exhausted).
-        added_this_page = len([
-            p for p in products
-            if _extract_product_slug(p.get("g2_url", "")) in seen_slugs
-        ])
-        # If the page returned a full batch (~15) keep paginating even when
-        # total_pages reported a lower ceiling — the pagination selector may
-        # simply not have matched G2's current markup.
-        if len(products) < 10 and added_this_page < 1:
+        # Stop when this page contributed zero new unique products (dedup
+        # exhausted) — protects against infinite loops when pagination links
+        # don't match and the page ceiling is the only other backstop.
+        if not new_slugs:
+            logger.info(
+                "G2 SCRAPE: %s page %d -> all slugs already seen; stopping",
+                category_slug, page,
+            )
             break
         # Only trust total_pages as a hard stop when pagination links were
-        # actually found; otherwise we fall back to empty-page detection above.
+        # actually found; otherwise we rely on the empty-new-slugs check above.
         if total_pages > 1 and page >= total_pages:
             break
 
