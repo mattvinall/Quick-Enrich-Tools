@@ -62,6 +62,10 @@ _BLOCKED_HOSTNAMES = {"localhost", "metadata.google.internal", "metadata.interna
 _ANTIBOT_DOMAINS = {
     "g2.com", "linkedin.com", "crunchbase.com", "bloomberg.com",
     "zoominfo.com", "glassdoor.com", "reuters.com",
+    # scrape.do explicitly 400s similarweb.com without super=true with the
+    # message "You have to use super=True for Similarweb.com scraping. We
+    # have custom solution :)" — skip the datacenter pass to avoid the waste.
+    "similarweb.com",
 }
 
 
