@@ -37,6 +37,7 @@ class ExtractRequest(BaseModel):
     options: ExtractionOptions
     quickenrich_api_key: str = ""
     serper_api_key: str = ""
+    scrape_do_api_key: str = ""
     job_titles: list[str] = []
     max_contacts: int = 3
 
@@ -99,6 +100,7 @@ async def submit_extraction(
         "options": opts.model_dump(),
         "quickenrich_api_key": body.quickenrich_api_key,
         "serper_api_key": body.serper_api_key,
+        "scrape_do_api_key": body.scrape_do_api_key,
         "job_titles": body.job_titles,
         "max_contacts": body.max_contacts,
     }

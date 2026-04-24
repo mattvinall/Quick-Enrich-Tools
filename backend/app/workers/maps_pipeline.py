@@ -41,6 +41,7 @@ async def run_maps_pipeline(ctx: dict, job_id: str) -> None:
     # ── Phase 0: Maps Discovery ─────────────────────────────────────
     searches: list[dict[str, str]] = config.get("searches", [])
     max_per_search: int = config.get("max_per_search", 20)
+    serper_api_key: str | None = config.get("serper_api_key") or None
 
     logger.info(
         "Maps pipeline starting for job_id=%s: %d searches, max_per_search=%d",
@@ -49,7 +50,7 @@ async def run_maps_pipeline(ctx: dict, job_id: str) -> None:
 
     try:
         places = await batch_search_maps(
-            searches, max_per_search=max_per_search,
+            searches, max_per_search=max_per_search, api_key=serper_api_key,
         )
     except Exception as exc:
         logger.exception("Maps search failed for job_id=%s: %s", job_id, exc)

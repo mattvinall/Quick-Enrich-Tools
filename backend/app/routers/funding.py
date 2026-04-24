@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -115,7 +115,9 @@ class FundingCompany(BaseModel):
 class FundingExtractRequest(BaseModel):
     companies: list[FundingCompany]
     options: ExtractionOptions = ExtractionOptions()
+    serper_api_key: str = ""
     quickenrich_api_key: str = ""
+    scrape_do_api_key: str = ""
     job_titles: list[str] = []
     max_contacts: int = 3
 
@@ -126,10 +128,12 @@ class FundingExtractRequest(BaseModel):
 async def discover_funding(
     request: Request,
     hours: int = Query(default=24, description="Look back window in hours (1-168)"),
+    x_serper_api_key: str = Header(default="", alias="X-Serper-Api-Key"),
 ) -> dict:
     """Discover companies funded in the last N hours.
 
     Accepts hours in [1, 168] so the UI can offer 24h/48h/3d/7d ranges.
+    The caller must supply their Serper API key via the X-Serper-Api-Key header.
     """
     _check_discover_rate_limit(request.client.host if request.client else "unknown")
     if hours < 1 or hours > 168:
@@ -137,7 +141,12 @@ async def discover_funding(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="hours must be between 1 and 168 (inclusive).",
         )
-    companies = await discover_funded_companies(hours)
+    if not x_serper_api_key.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Serper API key is required. Pass it via the X-Serper-Api-Key header.",
+        )
+    companies = await discover_funded_companies(hours, api_key=x_serper_api_key.strip())
     return {"companies": companies, "total": len(companies)}
 
 
@@ -175,7 +184,9 @@ async def submit_funding_extraction(
     job_config = {
         "companies": companies_data,
         "options": opts.model_dump(),
+        "serper_api_key": body.serper_api_key,
         "quickenrich_api_key": body.quickenrich_api_key,
+        "scrape_do_api_key": body.scrape_do_api_key,
         "job_titles": body.job_titles,
         "max_contacts": body.max_contacts,
     }

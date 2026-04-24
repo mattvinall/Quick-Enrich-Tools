@@ -145,6 +145,7 @@ export default function PeopleIntelPage() {
   // API keys
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
   const [serperApiKey, setSerperApiKey] = useState('');
+  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
 
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
@@ -223,7 +224,11 @@ export default function PeopleIntelPage() {
   // Validation
   const hasData = items.length > 0;
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const canSubmit = hasData && hasOptions;
+  const hasRequiredKeys =
+    serperApiKey.trim().length > 0 &&
+    scrapeDoApiKey.trim().length > 0 &&
+    quickenrichApiKey.trim().length > 0;
+  const canSubmit = hasData && hasOptions && hasRequiredKeys;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
@@ -243,6 +248,7 @@ export default function PeopleIntelPage() {
           },
           serper_api_key: serperApiKey,
           quickenrich_api_key: quickenrichApiKey,
+          scrape_do_api_key: scrapeDoApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -462,6 +468,8 @@ export default function PeopleIntelPage() {
                     hasCompanyNames={true}
                     serperApiKey={serperApiKey}
                     onSerperApiKeyChange={setSerperApiKey}
+                    scrapeDoApiKey={scrapeDoApiKey}
+                    onScrapeDoApiKeyChange={setScrapeDoApiKey}
                     peopleMode
                   />
 

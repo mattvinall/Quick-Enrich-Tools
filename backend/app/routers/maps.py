@@ -81,7 +81,9 @@ class MapsExtractRequest(BaseModel):
     # Shared config
     max_per_search: int = 20
     options: ExtractionOptions = ExtractionOptions()
+    serper_api_key: str = ""
     quickenrich_api_key: str = ""
+    scrape_do_api_key: str = ""
     job_titles: list[str] = []
     max_contacts: int = 3
 
@@ -150,7 +152,9 @@ async def submit_maps_extraction(
         "searches": searches,
         "max_per_search": max_per,
         "options": opts.model_dump(),
+        "serper_api_key": body.serper_api_key,
         "quickenrich_api_key": body.quickenrich_api_key,
+        "scrape_do_api_key": body.scrape_do_api_key,
         "job_titles": body.job_titles,
         "max_contacts": body.max_contacts,
     }

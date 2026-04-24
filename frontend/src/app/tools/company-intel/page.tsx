@@ -124,6 +124,9 @@ export default function CompanyIntelPage() {
   // Serper API key (for company name resolution)
   const [serperApiKey, setSerperApiKey] = useState('');
 
+  // Scrape.do API key (for homepage crawl)
+  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
+
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
   const [maxContacts, setMaxContacts] = useState(3);
@@ -201,7 +204,11 @@ export default function CompanyIntelPage() {
   // Validation
   const hasData = lineStats.total > 0;
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const canSubmit = hasData && hasOptions;
+  const hasRequiredKeys =
+    scrapeDoApiKey.trim().length > 0 &&
+    (lineStats.names === 0 || serperApiKey.trim().length > 0) &&
+    (!companyPeople || quickenrichApiKey.trim().length > 0);
+  const canSubmit = hasData && hasOptions && hasRequiredKeys;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
@@ -221,6 +228,7 @@ export default function CompanyIntelPage() {
           },
           quickenrich_api_key: quickenrichApiKey,
           serper_api_key: serperApiKey,
+          scrape_do_api_key: scrapeDoApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -413,6 +421,8 @@ export default function CompanyIntelPage() {
                     hasCompanyNames={lineStats.names > 0}
                     serperApiKey={serperApiKey}
                     onSerperApiKeyChange={setSerperApiKey}
+                    scrapeDoApiKey={scrapeDoApiKey}
+                    onScrapeDoApiKeyChange={setScrapeDoApiKey}
                   />
 
                   <div className="flex gap-3 pt-2">

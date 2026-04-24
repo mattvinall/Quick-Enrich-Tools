@@ -62,6 +62,8 @@ async def upload_csv(
     enrich_contacts: bool = Form(default=False),
     job_titles: str = Form(default=""),
     max_contacts: int = Form(default=1),
+    serper_api_key: str = Form(default=""),
+    quickenrich_api_key: str = Form(default=""),
     token_payload: dict[str, str | int] = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str | int]:
@@ -116,6 +118,8 @@ async def upload_csv(
         "enrich_contacts": enrich_contacts,
         "job_titles": parsed_titles,
         "max_contacts": max_contacts,
+        "serper_api_key": serper_api_key,
+        "quickenrich_api_key": quickenrich_api_key,
     }
     job = Job(
         email_capture_id=uuid.UUID(email_capture_id),

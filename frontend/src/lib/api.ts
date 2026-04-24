@@ -48,6 +48,8 @@ export interface UploadConfig {
   enrichContacts: boolean;
   jobTitles: string[];
   maxContacts: number;
+  serperApiKey: string;
+  quickenrichApiKey: string;
 }
 
 export interface UploadResponse {
@@ -69,6 +71,8 @@ export function uploadCSV(
   form.append('enrich_contacts', String(config.enrichContacts));
   form.append('job_titles', JSON.stringify(config.jobTitles));
   form.append('max_contacts', String(config.maxContacts));
+  form.append('serper_api_key', config.serperApiKey);
+  form.append('quickenrich_api_key', config.quickenrichApiKey);
 
   return fetchAPI<UploadResponse>(`${API_URL}/api/v1/upload`, {
     method: 'POST',
@@ -131,6 +135,7 @@ export interface ExtractRequest {
   options: ExtractionOptions;
   quickenrich_api_key: string;
   serper_api_key: string;
+  scrape_do_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }
@@ -192,6 +197,7 @@ export interface G2ExtractRequest {
   options: ExtractionOptions;
   quickenrich_api_key: string;
   serper_api_key: string;
+  scrape_do_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }
@@ -230,7 +236,9 @@ export interface MapsExtractRequest {
   // Shared config
   max_per_search: number;
   options: ExtractionOptions;
+  serper_api_key: string;
   quickenrich_api_key: string;
+  scrape_do_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }
@@ -277,16 +285,24 @@ export interface FundingDiscoverResponse {
   cached_at?: string;
 }
 
-export function discoverFunding(hours: number = 24): Promise<FundingDiscoverResponse> {
+export function discoverFunding(
+  hours: number = 24,
+  serperApiKey: string = '',
+): Promise<FundingDiscoverResponse> {
   return fetchAPI<FundingDiscoverResponse>(
     `${API_URL}/api/v1/funding/discover?hours=${hours}`,
+    {
+      headers: serperApiKey ? { 'X-Serper-Api-Key': serperApiKey } : undefined,
+    },
   );
 }
 
 export interface FundingExtractRequest {
   companies: FundingCompany[];
   options: ExtractionOptions;
+  serper_api_key: string;
   quickenrich_api_key: string;
+  scrape_do_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }
@@ -322,6 +338,7 @@ export interface PeopleExtractRequest {
   options: ExtractionOptions;
   serper_api_key: string;
   quickenrich_api_key: string;
+  scrape_do_api_key: string;
   job_titles: string[];
   max_contacts: number;
 }

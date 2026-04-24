@@ -31,6 +31,8 @@ interface ExtractionSettingsProps {
   hasCompanyNames?: boolean;
   serperApiKey?: string;
   onSerperApiKeyChange?: (v: string) => void;
+  scrapeDoApiKey?: string;
+  onScrapeDoApiKeyChange?: (v: string) => void;
   // People Intel mode: hide org-wide contact controls that don't apply to per-person search.
   // companyPeople is forced on by the parent; homepageRawText, title input, and max-contacts
   // are hidden so the settings page only exposes the QuickEnrich + Serper key fields.
@@ -83,6 +85,8 @@ export default function ExtractionSettings({
   hasCompanyNames = false,
   serperApiKey = "",
   onSerperApiKeyChange,
+  scrapeDoApiKey = "",
+  onScrapeDoApiKeyChange,
   peopleMode = false,
 }: ExtractionSettingsProps) {
   const [titleInput, setTitleInput] = useState("");
@@ -327,7 +331,36 @@ export default function ExtractionSettings({
             className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
           <p className="text-xs text-text-secondary">
-            Required to look up websites for company names. Free tier includes 2,500 searches.
+            Required for search operations. Free tier includes 2,500 searches.
+          </p>
+        </div>
+      )}
+
+      {onScrapeDoApiKeyChange && (
+        <div className="space-y-1.5 pt-2 border-t border-border">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-text-primary">
+              Scrape.do API Key
+            </label>
+            <a
+              href="https://dashboard.scrape.do/signup"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
+            >
+              Get Key <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+          <input
+            type="password"
+            autoComplete="off"
+            value={scrapeDoApiKey}
+            onChange={(e) => onScrapeDoApiKeyChange(e.target.value)}
+            placeholder="Your Scrape.do API key"
+            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <p className="text-xs text-text-secondary">
+            Required to scrape company sites. Free tier includes 1,000 credits/month.
           </p>
         </div>
       )}

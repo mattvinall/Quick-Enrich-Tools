@@ -41,6 +41,10 @@ interface ConfigPanelProps {
   onEnrichContactsChange: (value: boolean) => void;
   onJobTitlesChange: (titles: string[]) => void;
   onMaxContactsChange: (value: number) => void;
+  serperApiKey: string;
+  onSerperApiKeyChange: (v: string) => void;
+  quickenrichApiKey: string;
+  onQuickenrichApiKeyChange: (v: string) => void;
 }
 
 export default function ConfigPanel({
@@ -50,6 +54,10 @@ export default function ConfigPanel({
   onEnrichContactsChange,
   onJobTitlesChange,
   onMaxContactsChange,
+  serperApiKey,
+  onSerperApiKeyChange,
+  quickenrichApiKey,
+  onQuickenrichApiKeyChange,
 }: ConfigPanelProps) {
   const [titleInput, setTitleInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -106,6 +114,36 @@ export default function ConfigPanel({
     <TooltipProvider delayDuration={300}>
       <Card>
         <CardContent className="p-5 space-y-4">
+          {/* Serper API key — required for website lookup */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="serper-key" className="text-sm">
+                Serper API Key
+              </Label>
+              <a
+                href="https://serper.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Get Key
+              </a>
+            </div>
+            <Input
+              id="serper-key"
+              type="password"
+              autoComplete="off"
+              value={serperApiKey}
+              onChange={(e) => onSerperApiKeyChange(e.target.value)}
+              placeholder="Your Serper API key"
+            />
+            <p className="text-xs text-text-secondary">
+              Required to look up company websites. Free tier includes 2,500 searches.
+            </p>
+          </div>
+
+          <Separator />
+
           {/* Toggle row */}
           <div className="flex items-center gap-3">
             <Checkbox
@@ -151,6 +189,41 @@ export default function ConfigPanel({
                 style={{ overflow: "hidden" }}
               >
                 <div className="pt-1 space-y-5">
+                  <Separator />
+
+                  {/* QuickEnrich API key */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="quickenrich-key" className="text-sm">
+                        QuickEnrich.io API Key
+                      </Label>
+                      <a
+                        href="https://app.quickenrich.io"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Get Key
+                      </a>
+                    </div>
+                    <Input
+                      id="quickenrich-key"
+                      type="password"
+                      autoComplete="off"
+                      value={quickenrichApiKey}
+                      onChange={(e) => onQuickenrichApiKeyChange(e.target.value)}
+                      placeholder="qe_..."
+                    />
+                    <a
+                      href="https://app.quickenrich.io/promo"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-primary hover:underline inline-block"
+                    >
+                      Get 50,000 free QuickEnrich.io credits
+                    </a>
+                  </div>
+
                   <Separator />
 
                   {/* Job titles section */}

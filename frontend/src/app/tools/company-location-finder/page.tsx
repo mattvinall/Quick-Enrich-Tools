@@ -77,6 +77,10 @@ export default function CompanyLocationFinderPage() {
   const [jobTitles, setJobTitles] = useState<string[]>([]);
   const [maxContacts, setMaxContacts] = useState(3);
 
+  // API keys — user-supplied (Serper always, QuickEnrich only when enriching)
+  const [serperApiKey, setSerperApiKey] = useState('');
+  const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
+
   // Job / auth — restore from localStorage if available (skip if JWT already expired)
   const [jobId, setJobId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -193,6 +197,8 @@ export default function CompanyLocationFinderPage() {
           enrichContacts,
           jobTitles,
           maxContacts,
+          serperApiKey,
+          quickenrichApiKey,
         },
         capture.token,
       );
@@ -311,6 +317,10 @@ export default function CompanyLocationFinderPage() {
                     onEnrichContactsChange={setEnrichContacts}
                     onJobTitlesChange={setJobTitles}
                     onMaxContactsChange={setMaxContacts}
+                    serperApiKey={serperApiKey}
+                    onSerperApiKeyChange={setSerperApiKey}
+                    quickenrichApiKey={quickenrichApiKey}
+                    onQuickenrichApiKeyChange={setQuickenrichApiKey}
                   />
 
                   <div className="flex gap-3 pt-2">
@@ -323,7 +333,11 @@ export default function CompanyLocationFinderPage() {
                     </Button>
                     <Button
                       type="button"
-                      disabled={!companyColumn}
+                      disabled={
+                        !companyColumn ||
+                        !serperApiKey.trim() ||
+                        (enrichContacts && !quickenrichApiKey.trim())
+                      }
                       onClick={() => navigate('submit')}
                       className="flex-1 gap-2"
                     >

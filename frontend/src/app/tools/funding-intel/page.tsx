@@ -52,10 +52,12 @@ export default function FundingIntelPage() {
   const [companyPeople, setCompanyPeople] = useState(true);
   const [homepageRawText, setHomepageRawText] = useState(false);
 
-  // QuickEnrich API key
+  // API keys — user supplies their own for Serper (discovery + LinkedIn),
+  // Scrape.do (site crawl), and QuickEnrich (contact enrichment, only when
+  // company_people is enabled).
+  const [serperApiKey, setSerperApiKey] = useState('');
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
-  // Serper not needed for funding — backend resolves via its own key
-  const [serperApiKey] = useState('');
+  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
 
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
@@ -134,7 +136,11 @@ export default function FundingIntelPage() {
   // Validation
   const hasCompanies = selectedCompanies.length > 0;
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const canSubmit = hasCompanies && hasOptions;
+  const hasRequiredKeys =
+    serperApiKey.trim().length > 0 &&
+    scrapeDoApiKey.trim().length > 0 &&
+    (!companyPeople || quickenrichApiKey.trim().length > 0);
+  const canSubmit = hasCompanies && hasOptions && hasRequiredKeys;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
@@ -152,7 +158,9 @@ export default function FundingIntelPage() {
             company_people: companyPeople,
             homepage_raw_text: homepageRawText,
           },
+          serper_api_key: serperApiKey,
           quickenrich_api_key: quickenrichApiKey,
+          scrape_do_api_key: scrapeDoApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -232,11 +240,39 @@ export default function FundingIntelPage() {
                     </p>
                   </div>
 
+                  <div className="space-y-1.5 rounded-lg border border-border bg-white p-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-text-primary">
+                        Serper API Key
+                      </label>
+                      <a
+                        href="https://serper.dev"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Get Key
+                      </a>
+                    </div>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={serperApiKey}
+                      onChange={(e) => setSerperApiKey(e.target.value)}
+                      placeholder="Your Serper API key"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                    <p className="text-xs text-text-secondary">
+                      Required to discover funded companies. Free tier includes 2,500 searches.
+                    </p>
+                  </div>
+
                   <FundingDiscoveryPanel
                     selectedCompanies={selectedCompanies}
                     onSelectionChange={setSelectedCompanies}
                     hours={hours}
                     onHoursChange={setHours}
+                    serperApiKey={serperApiKey}
                   />
 
                   <div className="flex justify-end">
@@ -266,11 +302,13 @@ export default function FundingIntelPage() {
                     onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={setCompanyPeople}
                     onHomepageRawTextChange={setHomepageRawText}
-                    hasCompanyNames={false}
+                    hasCompanyNames={true}
                     quickenrichApiKey={quickenrichApiKey}
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
                     serperApiKey={serperApiKey}
-                    onSerperApiKeyChange={() => {}}
+                    onSerperApiKeyChange={setSerperApiKey}
+                    scrapeDoApiKey={scrapeDoApiKey}
+                    onScrapeDoApiKeyChange={setScrapeDoApiKey}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}

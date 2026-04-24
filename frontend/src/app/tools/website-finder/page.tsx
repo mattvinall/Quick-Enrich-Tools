@@ -29,6 +29,10 @@ export default function WebsiteFinderPage() {
   const [jobTitles, setJobTitles] = useState<string[]>([]);
   const [maxContacts, setMaxContacts] = useState(3);
 
+  // API keys
+  const [serperApiKey, setSerperApiKey] = useState('');
+  const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
+
   // Job state
   const [jobId, setJobId] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -84,6 +88,8 @@ export default function WebsiteFinderPage() {
           enrichContacts,
           jobTitles,
           maxContacts,
+          serperApiKey,
+          quickenrichApiKey,
         },
         capture.token,
       );
@@ -136,6 +142,10 @@ export default function WebsiteFinderPage() {
                 onEnrichContactsChange={setEnrichContacts}
                 onJobTitlesChange={setJobTitles}
                 onMaxContactsChange={setMaxContacts}
+                serperApiKey={serperApiKey}
+                onSerperApiKeyChange={setSerperApiKey}
+                quickenrichApiKey={quickenrichApiKey}
+                onQuickenrichApiKeyChange={setQuickenrichApiKey}
               />
 
               <div className="flex gap-3 pt-2">
@@ -148,7 +158,11 @@ export default function WebsiteFinderPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={!companyColumn}
+                  disabled={
+                    !companyColumn ||
+                    !serperApiKey.trim() ||
+                    (enrichContacts && !quickenrichApiKey.trim())
+                  }
                   onClick={() => setPhase('email')}
                   className="flex-1 px-4 py-2 text-sm font-medium rounded-md bg-primary text-white hover:bg-primary-hover hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0"
                 >

@@ -47,9 +47,11 @@ export default function G2IntelPage() {
   const [companyPeople, setCompanyPeople] = useState(true);
   const [homepageRawText, setHomepageRawText] = useState(false);
 
-  // QuickEnrich API key
+  // API keys — user-supplied for Serper, Scrape.do, and QuickEnrich (the last
+  // only when companyPeople is on).
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
   const [serperApiKey, setSerperApiKey] = useState('');
+  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
 
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
@@ -128,7 +130,11 @@ export default function G2IntelPage() {
   // Validation
   const hasCategories = selectedCategories.length > 0;
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const canSubmit = hasCategories && hasOptions;
+  const hasRequiredKeys =
+    serperApiKey.trim().length > 0 &&
+    scrapeDoApiKey.trim().length > 0 &&
+    (!companyPeople || quickenrichApiKey.trim().length > 0);
+  const canSubmit = hasCategories && hasOptions && hasRequiredKeys;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
@@ -149,6 +155,7 @@ export default function G2IntelPage() {
           },
           quickenrich_api_key: quickenrichApiKey,
           serper_api_key: serperApiKey,
+          scrape_do_api_key: scrapeDoApiKey,
           job_titles: companyPeople ? jobTitles : [],
           max_contacts: companyPeople ? maxContacts : 1,
         },
@@ -267,6 +274,8 @@ export default function G2IntelPage() {
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
                     serperApiKey={serperApiKey}
                     onSerperApiKeyChange={setSerperApiKey}
+                    scrapeDoApiKey={scrapeDoApiKey}
+                    onScrapeDoApiKeyChange={setScrapeDoApiKey}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}

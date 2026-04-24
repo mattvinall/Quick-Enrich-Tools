@@ -13,12 +13,25 @@ def test_discover_accepts_72_hours():
         new=AsyncMock(return_value=[]),
     ):
         client = TestClient(app)
-        r = client.get("/api/v1/funding/discover?hours=72")
+        r = client.get(
+            "/api/v1/funding/discover?hours=72",
+            headers={"X-Serper-Api-Key": "test-key"},
+        )
     # Should not be 422; the exact status depends on auth — assert it's NOT 422.
     assert r.status_code != 422, r.text
 
 
 def test_discover_rejects_hours_over_168():
     client = TestClient(app)
-    r = client.get("/api/v1/funding/discover?hours=999")
+    r = client.get(
+        "/api/v1/funding/discover?hours=999",
+        headers={"X-Serper-Api-Key": "test-key"},
+    )
     assert r.status_code == 422
+
+
+def test_discover_requires_serper_key():
+    client = TestClient(app)
+    r = client.get("/api/v1/funding/discover?hours=24")
+    assert r.status_code == 422
+    assert "Serper API key is required" in r.text

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { discoverFunding, FundingCompany } from '@/lib/api';
@@ -49,6 +49,7 @@ interface FundingDiscoveryPanelProps {
   onSelectionChange: (companies: FundingCompany[]) => void;
   hours: number;
   onHoursChange: (h: number) => void;
+  serperApiKey: string;
 }
 
 export default function FundingDiscoveryPanel({
@@ -56,28 +57,28 @@ export default function FundingDiscoveryPanel({
   onSelectionChange,
   hours,
   onHoursChange,
+  serperApiKey,
 }: FundingDiscoveryPanelProps) {
   const [companies, setCompanies] = useState<FundingCompany[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [activeFilter, setActiveFilter] = useState<RoundFilter>('All');
+  const [hasDiscovered, setHasDiscovered] = useState(false);
 
   async function loadCompanies() {
+    if (!serperApiKey.trim()) return;
     setLoading(true);
     setError('');
+    setHasDiscovered(true);
     try {
-      const data = await discoverFunding(hours);
+      const data = await discoverFunding(hours, serperApiKey.trim());
       setCompanies(data.companies);
-    } catch {
-      setError('Failed to discover funded companies. Please check your connection.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to discover funded companies.');
     } finally {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    loadCompanies();
-  }, [hours]);
 
   const filtered = useMemo(() => {
     if (activeFilter === 'All') return companies;
@@ -145,6 +146,23 @@ export default function FundingDiscoveryPanel({
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={loadCompanies}
+            disabled={!serperApiKey.trim() || loading}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors',
+              'bg-primary text-white hover:bg-primary/90',
+              'disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed',
+            )}
+          >
+            {loading ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Search className="w-3 h-3" />
+            )}
+            {hasDiscovered ? 'Refresh' : 'Discover'}
+          </button>
         </div>
 
         {selectedCompanies.length > 0 && (
@@ -200,7 +218,21 @@ export default function FundingDiscoveryPanel({
 
       {/* Company list */}
       <div className="border border-border rounded-lg overflow-hidden max-h-[400px] overflow-y-auto bg-white">
-        {loading ? (
+        {!serperApiKey.trim() ? (
+          <div className="flex flex-col items-center justify-center h-32 gap-1 px-4 text-center">
+            <p className="text-sm font-medium text-text-primary">Serper API key required</p>
+            <p className="text-xs text-text-secondary">
+              Enter your Serper key below, then click Discover to find funded companies.
+            </p>
+          </div>
+        ) : !hasDiscovered ? (
+          <div className="flex flex-col items-center justify-center h-32 gap-1 px-4 text-center">
+            <p className="text-sm font-medium text-text-primary">Ready to discover</p>
+            <p className="text-xs text-text-secondary">
+              Pick a time range and click Discover.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-32 gap-2 text-sm text-text-secondary">
             <Loader2 className="w-4 h-4 animate-spin" />
             Discovering funded companies...

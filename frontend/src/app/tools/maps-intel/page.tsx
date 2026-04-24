@@ -49,8 +49,10 @@ export default function MapsIntelPage() {
   const [companyPeople, setCompanyPeople] = useState(true);
   const [homepageRawText, setHomepageRawText] = useState(false);
 
-  // QuickEnrich API key (Serper key not needed — backend uses its own for Maps + resolve)
+  // API keys — user supplies their own for all upstream services.
+  const [serperApiKey, setSerperApiKey] = useState('');
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
+  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
 
   // Contact config
   const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder', 'Owner']);
@@ -129,7 +131,11 @@ export default function MapsIntelPage() {
   // Validation
   const hasSearches = csvSearches.length > 0 || (searchTerms.length > 0 && location.trim().length > 0);
   const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
-  const canSubmit = hasSearches && hasOptions;
+  const hasRequiredKeys =
+    serperApiKey.trim().length > 0 &&
+    scrapeDoApiKey.trim().length > 0 &&
+    (!companyPeople || quickenrichApiKey.trim().length > 0);
+  const canSubmit = hasSearches && hasOptions && hasRequiredKeys;
 
   const estimatedTotal = csvSearches.length > 0
     ? csvSearches.length * maxPerSearch
@@ -150,7 +156,9 @@ export default function MapsIntelPage() {
           company_people: companyPeople,
           homepage_raw_text: homepageRawText,
         },
+        serper_api_key: serperApiKey,
         quickenrich_api_key: quickenrichApiKey,
+        scrape_do_api_key: scrapeDoApiKey,
         job_titles: companyPeople ? jobTitles : [],
         max_contacts: companyPeople ? maxContacts : 1,
       };
@@ -272,9 +280,13 @@ export default function MapsIntelPage() {
                     onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={setCompanyPeople}
                     onHomepageRawTextChange={setHomepageRawText}
-                    hasCompanyNames={false}
+                    hasCompanyNames={true}
                     quickenrichApiKey={quickenrichApiKey}
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
+                    serperApiKey={serperApiKey}
+                    onSerperApiKeyChange={setSerperApiKey}
+                    scrapeDoApiKey={scrapeDoApiKey}
+                    onScrapeDoApiKeyChange={setScrapeDoApiKey}
                     jobTitles={jobTitles}
                     onJobTitlesChange={setJobTitles}
                     maxContacts={maxContacts}

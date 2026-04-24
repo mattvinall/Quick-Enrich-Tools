@@ -127,27 +127,33 @@ async def scrape_page(
     render: bool = False,
     super_proxy: bool = False,
     block_resources: bool = True,
+    api_key: str | None = None,
 ) -> str:
     """Scrape a single URL. Returns raw HTML string.
 
-    If SCRAPE_DO_API_KEY is configured, uses scrape.do API (recommended).
-    Otherwise, fetches directly via httpx with a browser-like User-Agent.
+    Uses scrape.do API when a key is available (api_key arg overrides
+    settings.scrape_do_api_key). Otherwise, fetches directly via httpx
+    with a browser-like User-Agent.
 
     Args:
         render: Use headless browser for JS rendering (5 credits).
         super_proxy: Use residential proxy pool (10 credits, or 25 with render).
         block_resources: Block CSS/images/fonts (default True). Set False for
             sites that detect missing resources as bot behavior.
+        api_key: Caller-provided Scrape.do token. Falls back to the configured
+            server key when empty.
     """
     if not _is_safe_url(url):
         raise ValueError(f"URL blocked by SSRF protection: {url}")
 
-    if settings.scrape_do_api_key:
+    effective_scrape_do = (api_key or settings.scrape_do_api_key or "").strip()
+
+    if effective_scrape_do:
         # scrape.do API — handles anti-bot, residential proxies, optional JS rendering
         encoded_url = quote(url, safe="")
         api_url = (
             f"https://api.scrape.do/"
-            f"?token={settings.scrape_do_api_key}"
+            f"?token={effective_scrape_do}"
             f"&url={encoded_url}"
         )
         if render:
@@ -292,6 +298,7 @@ async def crawl_site(
     domain: str,
     options: dict,
     max_pages: int | None = None,
+    api_key: str | None = None,
 ) -> dict[str, str]:
     """Crawl a company website: homepage + relevant internal pages.
 
@@ -300,42 +307,50 @@ async def crawl_site(
     if max_pages is None:
         max_pages = settings.max_pages_per_site
 
+    effective_scrape_do = (api_key or settings.scrape_do_api_key or "").strip()
+
     result: dict[str, str] = {}
     homepage_url = f"https://{domain}"
 
     # Step 1: Scrape homepage
     # Known anti-bot sites skip datacenter passes (always 403, wastes credits).
     # Everything else uses 3-pass escalation: datacenter → render → super+render.
-    antibot = _is_antibot_domain(domain) and bool(settings.scrape_do_api_key)
+    antibot = _is_antibot_domain(domain) and bool(effective_scrape_do)
     try:
         if antibot:
             logger.info("SCRAPE ANTIBOT (super+render): %s", domain)
             homepage_html = await scrape_page(
                 client, homepage_url,
                 render=True, super_proxy=True, block_resources=False,
+                api_key=effective_scrape_do,
             )
             homepage_text = extract_text_from_html(homepage_html)
         else:
             # Pass 1: Normal datacenter proxy, no JS rendering (1 credit)
-            homepage_html = await scrape_page(client, homepage_url, render=False)
+            homepage_html = await scrape_page(
+                client, homepage_url, render=False, api_key=effective_scrape_do,
+            )
             homepage_text = extract_text_from_html(homepage_html)
 
             # Pass 2: JS rendering if content too short (5 credits)
-            if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
+            if len(homepage_text) < _MIN_CONTENT_LENGTH and effective_scrape_do:
                 try:
                     logger.info("SCRAPE PASS 2 (render): %s", domain)
-                    homepage_html = await scrape_page(client, homepage_url, render=True)
+                    homepage_html = await scrape_page(
+                        client, homepage_url, render=True, api_key=effective_scrape_do,
+                    )
                     homepage_text = extract_text_from_html(homepage_html)
                 except Exception:
                     pass
 
             # Pass 3: Residential proxy + render + unblocked resources (25 credits)
-            if len(homepage_text) < _MIN_CONTENT_LENGTH and settings.scrape_do_api_key:
+            if len(homepage_text) < _MIN_CONTENT_LENGTH and effective_scrape_do:
                 try:
                     logger.info("SCRAPE PASS 3 (super+render): %s", domain)
                     homepage_html = await scrape_page(
                         client, homepage_url,
                         render=True, super_proxy=True, block_resources=False,
+                        api_key=effective_scrape_do,
                     )
                     homepage_text = extract_text_from_html(homepage_html)
                 except Exception:
@@ -360,7 +375,9 @@ async def crawl_site(
         async def _scrape_internal(url: str) -> tuple[str, str]:
             async with sem:
                 try:
-                    html = await scrape_page(client, url, render=False)
+                    html = await scrape_page(
+                        client, url, render=False, api_key=effective_scrape_do,
+                    )
                     return url, extract_text_from_html(html)
                 except Exception as exc:
                     logger.debug("Failed to scrape %s: %s", url, exc)
@@ -383,6 +400,7 @@ async def batch_crawl(
     domains: list[str],
     options: dict,
     concurrency: int | None = None,
+    api_key: str | None = None,
 ) -> dict[str, dict[str, str]]:
     """Crawl multiple company websites concurrently.
 
@@ -405,7 +423,7 @@ async def batch_crawl(
                 return domain, cached
 
             async with semaphore:
-                pages = await crawl_site(client, domain, options)
+                pages = await crawl_site(client, domain, options, api_key=api_key)
                 if pages:
                     await cache_set(cache_key, pages, settings.cache_ttl_days)
                 return domain, pages

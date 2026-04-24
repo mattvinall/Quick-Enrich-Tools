@@ -50,11 +50,12 @@ News items:
 _BATCH_SIZE = 15
 
 
-async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
+async def _fetch_funding_news(hours: int = 24, api_key: str | None = None) -> list[dict[str, str]]:
     """Run Serper /news queries (paginated) in parallel, merge and dedup by URL."""
     tbs = "qdr:d" if hours <= 24 else ("qdr:2d" if hours <= 48 else "qdr:w")
     page_cap = getattr(settings, "funding_news_pages_per_query", 3)
     semaphore = asyncio.Semaphore(settings.serper_concurrency)
+    serper_key = api_key or settings.serper_api_key
 
     async with httpx.AsyncClient() as client:
 
@@ -67,7 +68,7 @@ async def _fetch_funding_news(hours: int = 24) -> list[dict[str, str]]:
                     lambda b=body: client.post(
                         "https://google.serper.dev/news",
                         headers={
-                            "X-API-KEY": settings.serper_api_key,
+                            "X-API-KEY": serper_key,
                             "Content-Type": "application/json",
                         },
                         json=b,
@@ -234,7 +235,9 @@ def _deduplicate_companies(entries: list[dict[str, object]]) -> list[dict[str, o
     return list(seen.values())
 
 
-async def discover_funded_companies(hours: int = 24) -> list[dict[str, object]]:
+async def discover_funded_companies(
+    hours: int = 24, api_key: str | None = None,
+) -> list[dict[str, object]]:
     """Discover companies funded in the last N hours.
 
     Returns a list of dicts with keys: company_name, funding_amount,
@@ -250,7 +253,7 @@ async def discover_funded_companies(hours: int = 24) -> list[dict[str, object]]:
         if isinstance(companies, list):
             return companies
 
-    articles = await _fetch_funding_news(hours)
+    articles = await _fetch_funding_news(hours, api_key=api_key)
     if not articles:
         return []
 

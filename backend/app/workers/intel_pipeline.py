@@ -311,6 +311,7 @@ async def _phase_crawl_worker(
 ) -> None:
     """Phase 3: Crawl company websites using Scrape.do."""
     options = config.get("options", {})
+    scrape_do_api_key = config.get("scrape_do_api_key") or None
 
     try:
         async with AsyncSessionLocal() as db:
@@ -338,7 +339,9 @@ async def _phase_crawl_worker(
                             domains_to_crawl.append(r.raw_domain)
 
                 if domains_to_crawl:
-                    crawl_results = await batch_crawl(domains_to_crawl, options)
+                    crawl_results = await batch_crawl(
+                        domains_to_crawl, options, api_key=scrape_do_api_key,
+                    )
                     scraped_data.update(crawl_results)
 
                 for r in batch_results:
