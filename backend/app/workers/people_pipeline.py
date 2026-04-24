@@ -42,8 +42,8 @@ async def run_people_pipeline(ctx: dict, job_id: str) -> None:
     serper_api_key = config.get("serper_api_key") or None
 
     logger.info(
-        "People pipeline starting for job_id=%s: %d rows",
-        job_id, total_rows,
+        "People pipeline starting for job_id=%s: %d rows, user_serper_key=%s",
+        job_id, total_rows, "provided" if serper_api_key else "using-server-fallback",
     )
 
     # ── Phase 0: LinkedIn Search ───────────────────────────────────
@@ -52,6 +52,7 @@ async def run_people_pipeline(ctx: dict, job_id: str) -> None:
             await update_job_progress(db, parsed_job_id, "linkedin_search", 0, total_rows)
 
         searched = 0
+        linkedin_found_count = 0
         for batch_start in range(0, total_rows, _BATCH_SIZE):
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
@@ -86,6 +87,8 @@ async def run_people_pipeline(ctx: dict, job_id: str) -> None:
                 for i, r in enumerate(batch_results):
                     outcome = outcome_by_idx.get(i, {})
                     linkedin_url = outcome.get("linkedin_url", "")
+                    if linkedin_url:
+                        linkedin_found_count += 1
                     confidence = outcome.get("confidence", 0.0)
                     search_result = outcome.get("search_results")
 
@@ -127,9 +130,19 @@ async def run_people_pipeline(ctx: dict, job_id: str) -> None:
                 await update_job_progress(db, parsed_job_id, "linkedin_search", searched, total_rows)
 
         logger.info(
-            "People Phase 0 complete for job_id=%s: %d LinkedIn searches done",
-            job_id, searched,
+            "People Phase 0 complete for job_id=%s: %d searches done, %d LinkedIn URLs found (%.0f%% hit rate)",
+            job_id, searched, linkedin_found_count,
+            (linkedin_found_count / searched * 100) if searched else 0.0,
         )
+        if searched > 0 and linkedin_found_count == 0:
+            # Zero hits across the whole batch usually means the Serper key is
+            # misconfigured or the query pattern mismatches. Surface it loudly
+            # so operators can tell "no matches" apart from "silent failure".
+            logger.warning(
+                "People Phase 0: zero LinkedIn hits across %d rows for job_id=%s. "
+                "Check Serper key validity and Phase 0 LINKEDIN SEARCH logs above.",
+                searched, job_id,
+            )
 
     except Exception as exc:
         logger.exception("People LinkedIn search failed for job_id=%s: %s", job_id, exc)
