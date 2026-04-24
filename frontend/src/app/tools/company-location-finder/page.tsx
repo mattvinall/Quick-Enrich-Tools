@@ -323,7 +323,7 @@ export default function CompanyLocationFinderPage() {
                     </Button>
                     <Button
                       type="button"
-                      disabled={!companyColumn || !locationColumn}
+                      disabled={!companyColumn}
                       onClick={() => navigate('submit')}
                       className="flex-1 gap-2"
                     >
