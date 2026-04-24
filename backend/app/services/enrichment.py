@@ -12,6 +12,58 @@ logger = logging.getLogger(__name__)
 
 _CONTACT_FIELDS = ("title", "first_name", "last_name", "email", "phone", "mobile", "linkedin_url")
 
+# Titles that deserve strict matching. QuickEnrich's dataset-search is substring-based,
+# so asking for "CEO" returns rows like "Senior Executive Assistant, Office of the CEO"
+# or "Senior Analyst, CEO Office Sales Strategy". We post-filter to drop contacts whose
+# title contains a disqualifying role token when the caller asked for a C-level or founder.
+_STRICT_TITLE_TOKENS = {
+    "ceo", "cto", "cfo", "coo", "cmo", "cro", "cpo", "cso",
+    "founder", "co-founder", "cofounder", "owner", "president",
+}
+_DISQUALIFYING_SUBSTRINGS = (
+    "assistant",
+    "analyst",
+    "coordinator",
+    "specialist",
+    "associate",
+    "intern",
+    "office of the",
+    "to the ",
+    "executive support",
+    "chief of staff",
+)
+
+
+def _title_matches_strict(candidate_title: str, requested_title: str) -> bool:
+    """Return True if `candidate_title` is an acceptable match for `requested_title`.
+
+    Only applies stricter filtering when the requested title is a C-level/founder/owner
+    token. For everything else (e.g. "VP of Sales", "Director of Growth") we accept any
+    substring match, since legitimate variants often contain words like "Director of".
+    """
+    cand = candidate_title.lower().strip()
+    req = requested_title.lower().strip()
+    if not cand:
+        return False
+    # Strip punctuation so "C.E.O." and "CEO," both normalise.
+    cand_norm = cand.replace(".", "").replace(",", " ").replace("/", " ")
+    if req not in _STRICT_TITLE_TOKENS:
+        return req in cand_norm
+    # Strict path: the requested token must appear, AND no disqualifying substring.
+    if req not in cand_norm.split() and req not in cand_norm:
+        return False
+    for bad in _DISQUALIFYING_SUBSTRINGS:
+        if bad in cand_norm:
+            return False
+    return True
+
+
+def _contact_passes_title_filter(contact_title: str, requested_titles: list[str]) -> bool:
+    """Accept the contact if its title matches any of the requested titles strictly."""
+    if not requested_titles:
+        return True
+    return any(_title_matches_strict(contact_title, req) for req in requested_titles)
+
 
 def _enrich_cache_key(domain: str, job_titles: list[str], max_contacts: int) -> str:
     """Build a deterministic cache key for enrichment results."""
@@ -72,6 +124,14 @@ async def enrich_company(
             for record in raw_results:
                 if len(contacts) >= max_contacts:
                     break
+
+                record_title = str(record.get("title") or "")
+                if not _contact_passes_title_filter(record_title, job_titles):
+                    logger.debug(
+                        "enrich_company rejected title='%s' for titles=%s on domain=%s",
+                        record_title, job_titles, domain,
+                    )
+                    continue
 
                 email = str(record.get("email") or "").strip()
                 first = str(record.get("first_name") or "").strip()
