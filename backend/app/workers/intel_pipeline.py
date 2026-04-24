@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models import EmailCapture, Job, JobResult
 from app.services.email_service import send_results_email
-from app.services.enrichment import batch_enrich
+from app.services.enrichment import batch_enrich, contact_matches_person_name
 from app.services.scraper import batch_crawl, extract_generic_emails
 from app.services.intel_extractor import batch_extract_intel
 from app.services.serper import batch_search
@@ -546,9 +546,9 @@ async def _phase_enrich_worker(
                     for domain, row_indices in domains_with_rows.items():
                         outcome = outcomes_by_domain.get(domain)
                         if outcome is None:
-                            contacts: list[dict[str, str]] = []
+                            domain_contacts: list[dict[str, str]] = []
                         else:
-                            contacts = outcome.contacts
+                            domain_contacts = outcome.contacts
                             if outcome.error is not None:
                                 logger.warning(
                                     "Enrichment error for domain=%s job_id=%s: %s",
@@ -556,10 +556,30 @@ async def _phase_enrich_worker(
                                 )
                         for row_index in row_indices:
                             job_result = result_by_row.get(row_index)
-                            if job_result is not None:
-                                job_result.contacts = contacts
-                                if contacts:
-                                    job_result.status = "enriched"
+                            if job_result is None:
+                                continue
+                            # People Intel sets full_name on the input row — when
+                            # present, filter the domain-level contacts down to
+                            # those matching the expected person. Other tools
+                            # (Maps/G2/Funding) don't set full_name, so the full
+                            # contact list passes through unchanged.
+                            expected_name = ""
+                            if isinstance(job_result.input_data, dict):
+                                expected_name = str(job_result.input_data.get("full_name") or "")
+                            if expected_name and domain_contacts:
+                                row_contacts = [
+                                    c for c in domain_contacts
+                                    if contact_matches_person_name(
+                                        c.get("first_name", ""),
+                                        c.get("last_name", ""),
+                                        expected_name,
+                                    )
+                                ]
+                            else:
+                                row_contacts = domain_contacts
+                            job_result.contacts = row_contacts
+                            if row_contacts:
+                                job_result.status = "enriched"
 
                     await db.commit()
 

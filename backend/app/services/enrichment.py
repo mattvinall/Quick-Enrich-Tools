@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import unicodedata
 from dataclasses import dataclass
 
 import httpx
@@ -21,16 +22,40 @@ _STRICT_TITLE_TOKENS = {
     "founder", "co-founder", "cofounder", "owner", "president",
 }
 _DISQUALIFYING_SUBSTRINGS = (
+    # Subordinate-role markers: these only apply when the caller requested a
+    # strict C-level/founder title. If the user searches for "Manager" or
+    # "Business Partner" directly, the non-strict path bypasses this filter
+    # entirely (see _title_matches_strict).
     "assistant",
     "analyst",
     "coordinator",
     "specialist",
     "associate",
     "intern",
-    "office of the",
-    "to the ",
     "executive support",
     "chief of staff",
+    # "Office of CEO", "Office of the CEO", "Office of Founder" etc. — we used
+    # to require the article but real QE data drops it half the time.
+    "office of ",
+    # "X to CEO" / "X to the CEO" — EAs and business partners.
+    "to ceo",
+    "to cto",
+    "to cfo",
+    "to coo",
+    "to cmo",
+    "to founder",
+    "to the ceo",
+    "to the cto",
+    "to the cfo",
+    "to the founder",
+)
+
+_DISQUALIFYING_NAME_SUBSTRINGS = (
+    "sample contact",
+    "test contact",
+    "(sample",
+    "(test",
+    "do not contact",
 )
 
 
@@ -45,17 +70,36 @@ def _title_matches_strict(candidate_title: str, requested_title: str) -> bool:
     req = requested_title.lower().strip()
     if not cand:
         return False
-    # Strip punctuation so "C.E.O." and "CEO," both normalise.
-    cand_norm = cand.replace(".", "").replace(",", " ").replace("/", " ")
+    # Strip punctuation so "C.E.O." and "CEO," both normalise. Keep the pipe
+    # character as a space so compound titles like "Business Value Consulting |
+    # Stripe Brazil CEO" are disqualified when the primary segment (left of |)
+    # doesn't actually match the requested title.
+    cand_norm = (
+        cand.replace(".", "")
+        .replace(",", " ")
+        .replace("/", " ")
+        .replace("|", " | ")
+    )
     if req not in _STRICT_TITLE_TOKENS:
         return req in cand_norm
-    # Strict path: the requested token must appear, AND no disqualifying substring.
-    if req not in cand_norm.split() and req not in cand_norm:
+    # Strict path for C-level / founder / owner searches.
+    # 1) For compound "A | B" titles, only consider the primary (first) segment —
+    #    the secondary is usually a side identity, not the person's role at
+    #    the target company.
+    primary = cand_norm.split(" | ", 1)[0].strip() if " | " in cand_norm else cand_norm
+    if req not in primary.split() and req not in primary:
         return False
+    # 2) The primary segment must not contain any disqualifying role marker.
     for bad in _DISQUALIFYING_SUBSTRINGS:
-        if bad in cand_norm:
+        if bad in primary:
             return False
     return True
+
+
+def _name_passes_filter(first_name: str, last_name: str) -> bool:
+    """Reject QuickEnrich's "(Sample Contact)" test rows and similar placeholders."""
+    combined = f"{first_name} {last_name}".lower()
+    return not any(bad in combined for bad in _DISQUALIFYING_NAME_SUBSTRINGS)
 
 
 def _contact_passes_title_filter(contact_title: str, requested_titles: list[str]) -> bool:
@@ -63,6 +107,47 @@ def _contact_passes_title_filter(contact_title: str, requested_titles: list[str]
     if not requested_titles:
         return True
     return any(_title_matches_strict(contact_title, req) for req in requested_titles)
+
+
+def _normalize_name(s: str) -> str:
+    """Lowercase, strip diacritics, and keep only letters+spaces.
+
+    'Tobias Lütke' -> 'tobias lutke', 'Brian Halligan (Sample)' -> 'brian halligan'.
+    """
+    nfkd = unicodedata.normalize("NFKD", s or "")
+    stripped = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return "".join(c for c in stripped.lower() if c.isalpha() or c == " ").strip()
+
+
+def contact_matches_person_name(
+    contact_first: str,
+    contact_last: str,
+    expected_full_name: str,
+) -> bool:
+    """True when a QuickEnrich contact plausibly refers to the expected person.
+
+    Used by People Intel (1:1 lookup) so contacts at the same domain but a
+    different person don't get attached to the wrong row. Discovery tools
+    (Maps, G2, Funding) don't set an expected name and bypass this check.
+
+    Heuristic: last name must match exactly after normalization; first name
+    must share a 2-character prefix in either direction so 'Pat'/'Patrick'
+    and 'Alex'/'Alexandra' still match. If the expected name is a single
+    token (no last name), we stay permissive rather than drop everything.
+    """
+    expected_tokens = _normalize_name(expected_full_name).split()
+    if len(expected_tokens) < 2:
+        return True
+    exp_first = expected_tokens[0]
+    exp_last = expected_tokens[-1]
+    got_first = _normalize_name(contact_first)
+    got_last = _normalize_name(contact_last)
+    if exp_last != got_last:
+        return False
+    if not got_first or not exp_first:
+        return True
+    # 2-char prefix on either side handles Pat/Patrick, Alex/Alexandra.
+    return got_first.startswith(exp_first[:2]) or exp_first.startswith(got_first[:2])
 
 
 def _enrich_cache_key(domain: str, job_titles: list[str], max_contacts: int) -> str:
@@ -136,6 +221,13 @@ async def enrich_company(
                 email = str(record.get("email") or "").strip()
                 first = str(record.get("first_name") or "").strip()
                 last = str(record.get("last_name") or "").strip()
+
+                if not _name_passes_filter(first, last):
+                    logger.debug(
+                        "enrich_company rejected name='%s %s' (placeholder) on domain=%s",
+                        first, last, domain,
+                    )
+                    continue
 
                 if email and email.upper() != "N/A":
                     dedup_key = email.lower()
