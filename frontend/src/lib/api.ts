@@ -1,12 +1,20 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
+type PydanticValidationError = { msg?: string; loc?: unknown[]; type?: string };
+
 async function fetchAPI<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     let message = `Request failed with status ${res.status}`;
     try {
-      const body = await res.json() as { detail?: string };
-      if (body.detail) message = body.detail;
+      const body = await res.json() as { detail?: string | PydanticValidationError[] };
+      if (typeof body.detail === 'string') {
+        message = body.detail;
+      } else if (Array.isArray(body.detail) && body.detail.length > 0) {
+        message = body.detail
+          .map((err) => err?.msg || JSON.stringify(err))
+          .join('; ');
+      }
     } catch {
       // ignore parse errors — use default message
     }
