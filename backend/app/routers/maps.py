@@ -24,18 +24,37 @@ logger = logging.getLogger(__name__)
 
 
 async def _mark_job_failed_on_error(job_id: uuid.UUID, exc: BaseException) -> None:
-    """Set Job.status='failed' and record the error so the UI can surface it."""
+    """Set Job.status='failed' and record the error so the UI can surface it.
+
+    Two-phase write: if the combined status+error_message commit fails (e.g. the
+    original crash was a CheckViolation on the status column), retry writing
+    only error_message so the UI still shows something useful instead of hanging.
+    """
+    message = f"Pipeline crashed: {type(exc).__name__}: {exc}"
     try:
         async with AsyncSessionLocal() as db:
             job_result = await db.execute(select(Job).where(Job.id == job_id))
             job = job_result.scalar_one()
             job.status = "failed"
-            job.error_message = f"Pipeline crashed: {type(exc).__name__}: {exc}"
+            job.error_message = message
             await db.commit()
+        return
     except Exception as inner:
         logger.error(
-            "Failed to mark job %s as failed after pipeline error: %s",
+            "Failed to mark job %s status=failed after pipeline error: %s",
             job_id, inner,
+        )
+
+    try:
+        async with AsyncSessionLocal() as db:
+            job_result = await db.execute(select(Job).where(Job.id == job_id))
+            job = job_result.scalar_one()
+            job.error_message = message
+            await db.commit()
+    except Exception as inner2:
+        logger.error(
+            "Fallback error_message write also failed for job %s: %s",
+            job_id, inner2,
         )
 
 
@@ -104,10 +123,10 @@ async def submit_maps_extraction(
         )
 
     max_per = body.max_per_search
-    if max_per < 1 or max_per > 20:
+    if max_per < 1 or max_per > 100:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="max_per_search must be between 1 and 20.",
+            detail="max_per_search must be between 1 and 100.",
         )
 
     total_expected = len(searches) * max_per
