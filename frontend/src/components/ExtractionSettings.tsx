@@ -31,6 +31,10 @@ interface ExtractionSettingsProps {
   hasCompanyNames?: boolean;
   serperApiKey?: string;
   onSerperApiKeyChange?: (v: string) => void;
+  // People Intel mode: hide org-wide contact controls that don't apply to per-person search.
+  // companyPeople is forced on by the parent; homepageRawText, title input, and max-contacts
+  // are hidden so the settings page only exposes the QuickEnrich + Serper key fields.
+  peopleMode?: boolean;
 }
 
 interface CheckboxItemProps {
@@ -79,6 +83,7 @@ export default function ExtractionSettings({
   hasCompanyNames = false,
   serperApiKey = "",
   onSerperApiKeyChange,
+  peopleMode = false,
 }: ExtractionSettingsProps) {
   const [titleInput, setTitleInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -139,18 +144,22 @@ export default function ExtractionSettings({
           label="Target Market"
           description="Identifies Target Market and extracts Case Studies company names."
         />
-        <CheckboxItem
-          checked={companyPeople}
-          onChange={onCompanyPeopleChange}
-          label="Company's People"
-          description="Finds Contacts (name, title, email, phone) and generic emails."
-        />
-        <CheckboxItem
-          checked={homepageRawText}
-          onChange={onHomepageRawTextChange}
-          label="Home Page Raw Text"
-          description="Returns the raw, viewable text scraped from the home page."
-        />
+        {!peopleMode && (
+          <CheckboxItem
+            checked={companyPeople}
+            onChange={onCompanyPeopleChange}
+            label="Company's People"
+            description="Finds Contacts (name, title, email, phone) and generic emails."
+          />
+        )}
+        {!peopleMode && (
+          <CheckboxItem
+            checked={homepageRawText}
+            onChange={onHomepageRawTextChange}
+            label="Home Page Raw Text"
+            description="Returns the raw, viewable text scraped from the home page."
+          />
+        )}
       </div>
 
       {companyPeople && (
@@ -178,12 +187,18 @@ export default function ExtractionSettings({
               placeholder="qe_..."
               className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
-            <p className="text-xs text-primary">
-              Get 50,000 free QuickEnrich.io credits
-            </p>
+            <a
+              href="https://app.quickenrich.io/promo"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
+            >
+              Get 50,000 free QuickEnrich.io credits <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
 
-          {/* Job Titles */}
+          {/* Job Titles — hidden in peopleMode since we're searching a specific person, not titles at the org */}
+          {!peopleMode && (
           <div className="space-y-2">
             <label className="text-xs font-semibold text-text-primary">
               Job titles to find
@@ -261,8 +276,10 @@ export default function ExtractionSettings({
               </AnimatePresence>
             </div>
           </div>
+          )}
 
-          {/* Max contacts */}
+          {/* Max contacts — hidden in peopleMode; we search a specific person, not N contacts at the org */}
+          {!peopleMode && (
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <label className="text-xs font-semibold text-text-primary">Max contacts per company</label>
@@ -282,6 +299,7 @@ export default function ExtractionSettings({
               ))}
             </select>
           </div>
+          )}
         </div>
       )}
 

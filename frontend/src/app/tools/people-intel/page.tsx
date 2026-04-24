@@ -135,11 +135,12 @@ export default function PeopleIntelPage() {
     setCsvError('');
   };
 
-  // Extraction options
+  // Extraction options — People Intel forces companyPeople on and homepageRawText off.
+  // Only Industry & Target Market are user-toggleable here.
   const [industryDescription, setIndustryDescription] = useState(true);
   const [targetMarket, setTargetMarket] = useState(true);
-  const [companyPeople, setCompanyPeople] = useState(true);
-  const [homepageRawText, setHomepageRawText] = useState(false);
+  const companyPeople = true;
+  const homepageRawText = false;
 
   // API keys
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
@@ -450,8 +451,8 @@ export default function PeopleIntelPage() {
                     homepageRawText={homepageRawText}
                     onIndustryDescriptionChange={setIndustryDescription}
                     onTargetMarketChange={setTargetMarket}
-                    onCompanyPeopleChange={setCompanyPeople}
-                    onHomepageRawTextChange={setHomepageRawText}
+                    onCompanyPeopleChange={() => {}}
+                    onHomepageRawTextChange={() => {}}
                     quickenrichApiKey={quickenrichApiKey}
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
                     jobTitles={jobTitles}
@@ -461,6 +462,7 @@ export default function PeopleIntelPage() {
                     hasCompanyNames={true}
                     serperApiKey={serperApiKey}
                     onSerperApiKeyChange={setSerperApiKey}
+                    peopleMode
                   />
 
                   <div className="flex gap-3 pt-2">
