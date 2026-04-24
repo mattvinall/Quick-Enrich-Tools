@@ -99,12 +99,17 @@ class ExtractionOptions(BaseModel):
 
 class FundingCompany(BaseModel):
     company_name: str
-    funding_amount: str = ""
-    funding_round: str = ""
-    lead_investor: str = ""
-    description_snippet: str = ""
-    source_url: str = ""
-    source_name: str = ""
+    # The /discover endpoint emits null for any of these fields when the source
+    # news article didn't yield a value, so the /extract model must accept None.
+    # Previously this was `str = ""`, which caused Pydantic 422s when the
+    # frontend echoed discovered companies back verbatim — the classic source
+    # of the "[object Object]" error Tom reported.
+    funding_amount: str | None = None
+    funding_round: str | None = None
+    lead_investor: str | None = None
+    description_snippet: str | None = None
+    source_url: str | None = None
+    source_name: str | None = None
 
 
 class FundingExtractRequest(BaseModel):
