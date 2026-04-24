@@ -588,6 +588,14 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
             select(JobResult).where(JobResult.job_id == job_id)
         )
         all_results = list(result.scalars().all())
+        # "websites_found" = rows whose company domain resolved (not whether
+        # the LLM could later extract meaningful intel). Split from
+        # extracted_count so the email reports both honestly — Tom's report
+        # had 7/7 websites but only 5/7 extracted, and conflating the two
+        # made it look like resolution failed.
+        websites_resolved_count = sum(
+            1 for r in all_results if r.normalized_domain or r.raw_domain
+        )
         extracted_count = sum(1 for r in all_results if r.extracted_data)
         seen_contacts: set[str] = set()
         for r in all_results:
@@ -612,7 +620,8 @@ async def _phase_deliver(job_id: uuid.UUID) -> None:
 
         job_stats = {
             "total_rows": job.total_rows,
-            "websites_found": extracted_count,
+            "websites_found": websites_resolved_count,
+            "intel_extracted": extracted_count,
             "contacts_enriched": contacts_count,
         }
 

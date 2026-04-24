@@ -31,8 +31,21 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
 
     total: int = job_stats.get("total_rows", 0)
     found: int = job_stats.get("websites_found", 0)
+    # intel_extracted is only meaningful for pipelines that run an LLM extract
+    # phase (intel-by-url, g2, maps, funding, people). The CSV-based
+    # company-location-finder doesn't, so we hide the cell there.
+    _extracted_raw = job_stats.get("intel_extracted")
+    extracted: int = _extracted_raw if _extracted_raw is not None else found
+    show_extracted = _extracted_raw is not None
     contacts: int = job_stats.get("contacts_enriched", 0)
-    match_rate: str = f"{round(found / total * 100)}%" if total else "0%"
+
+    extracted_cell = (
+        f'''<td style="padding:6px 0;">
+                          <span style="color:#6b7280;font-size:13px;">Intel extracted</span><br/>
+                          <strong style="color:#2b7ec8;font-size:22px;">{extracted:,}</strong>
+                        </td>'''
+        if show_extracted else ""
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -78,10 +91,7 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
                           <span style="color:#6b7280;font-size:13px;">Websites found</span><br/>
                           <strong style="color:#111827;font-size:22px;">{found:,}</strong>
                         </td>
-                        <td style="padding:6px 0;">
-                          <span style="color:#6b7280;font-size:13px;">Match rate</span><br/>
-                          <strong style="color:#2b7ec8;font-size:22px;">{match_rate}</strong>
-                        </td>
+                        {extracted_cell}
                         <td style="padding:6px 0;">
                           <span style="color:#6b7280;font-size:13px;">Contacts found</span><br/>
                           <strong style="color:#111827;font-size:22px;">{contacts:,}</strong>
@@ -139,7 +149,10 @@ async def send_results_email(to_email: str, download_url: str, job_stats: dict[s
     for attempt in range(_MAX_RETRIES):
         try:
             await asyncio.to_thread(resend.Emails.send, params)
-            logger.info("Results email sent to %s (found=%d total=%d)", to_email, found, total)
+            logger.info(
+                "Results email sent to %s (found=%d extracted=%d contacts=%d total=%d)",
+                to_email, found, extracted, contacts, total,
+            )
             return
         except Exception as exc:
             last_exc = exc

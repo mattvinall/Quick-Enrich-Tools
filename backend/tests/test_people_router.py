@@ -36,9 +36,17 @@ class TestBuildPeopleHeaders:
 
 class TestExtractPeopleRow:
     def test_extracts_base_fields(self):
+        # linkedin_url and linkedin_confidence now live in input_data (stashed
+        # there by people_pipeline Phase 0) because the intel pipeline's
+        # resolve phase overwrites search_results during domain lookup.
         class FakeResult:
-            input_data = {"full_name": "Fred Smith", "company_name": "Apple"}
-            search_results = {"linkedin_url": "https://linkedin.com/in/fredsmith", "confidence": 0.9}
+            input_data = {
+                "full_name": "Fred Smith",
+                "company_name": "Apple",
+                "linkedin_url": "https://linkedin.com/in/fredsmith",
+                "linkedin_confidence": 0.9,
+            }
+            search_results = {"query": "apple official website", "results": []}
             normalized_domain = "apple.com"
             raw_domain = "apple.com"
             extracted_data = {}
@@ -53,7 +61,7 @@ class TestExtractPeopleRow:
         assert row[4] == "apple.com"
         assert row[5] == "extracted"
 
-    def test_handles_missing_search_results(self):
+    def test_handles_missing_linkedin_data(self):
         class FakeResult:
             input_data = {"full_name": "Fred Smith", "company_name": "Apple"}
             search_results = None
@@ -65,8 +73,8 @@ class TestExtractPeopleRow:
 
         row = _extract_people_row(FakeResult(), {}, max_contacts=0)
         assert row[0] == "Fred Smith"
-        assert row[2] == ""  # linkedin_url
-        assert row[3] == ""  # confidence
+        assert row[2] == ""  # linkedin_url absent
+        assert row[3] == ""  # confidence absent
         assert row[4] == ""  # website
 
 

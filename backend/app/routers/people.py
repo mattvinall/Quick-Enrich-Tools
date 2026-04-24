@@ -150,12 +150,13 @@ def _sanitize_csv(value: str) -> str:
 def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5) -> list[str]:
     input_data = result.input_data or {}
     extracted = result.extracted_data or {}
-    search = result.search_results or {}
 
     full_name = _sanitize_csv(input_data.get("full_name", ""))
     company_name = _sanitize_csv(input_data.get("company_name", ""))
-    linkedin_url = search.get("linkedin_url", "") if isinstance(search, dict) else ""
-    confidence = search.get("confidence", "") if isinstance(search, dict) else ""
+    # Phase 0 (LinkedIn search) stashes linkedin_url / linkedin_confidence here
+    # because the intel pipeline's resolve phase overwrites search_results.
+    linkedin_url = input_data.get("linkedin_url", "") or ""
+    confidence = input_data.get("linkedin_confidence", "")
     confidence_str = str(confidence) if confidence != "" else ""
     website = result.normalized_domain or result.raw_domain or ""
     row_status = result.status

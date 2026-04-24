@@ -105,19 +105,30 @@ async def run_people_pipeline(ctx: dict, job_id: str) -> None:
 
                     # Set up input for intel pipeline resolve phase:
                     # If user provided website, use it directly as URL input
-                    # Otherwise, use company_name for Serper domain resolution
+                    # Otherwise, use company_name for Serper domain resolution.
+                    #
+                    # Stash the Phase 0 LinkedIn result in input_data too — the
+                    # intel pipeline's resolve phase overwrites r.search_results
+                    # with its own domain-lookup payload, which was silently
+                    # wiping the LinkedIn URL from the final CSV. input_data is
+                    # only ever read (never mutated) downstream, so it's safe.
                     input_data = r.input_data or {}
                     website = input_data.get("website", "")
+                    base_input = {
+                        **input_data,
+                        "linkedin_url": linkedin_url,
+                        "linkedin_confidence": confidence,
+                    }
                     if website:
                         r.input_data = {
-                            **input_data,
+                            **base_input,
                             "input": website,
                             "input_type": "url",
                         }
                     else:
                         r.input_data = {
-                            **input_data,
-                            "input": input_data.get("company_name", ""),
+                            **base_input,
+                            "input": base_input.get("company_name", ""),
                             "input_type": "name",
                         }
 
