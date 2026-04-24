@@ -12,7 +12,7 @@ async function fetchAPI<T>(url: string, init?: RequestInit): Promise<T> {
         message = body.detail;
       } else if (Array.isArray(body.detail) && body.detail.length > 0) {
         message = body.detail
-          .map((err) => err?.msg || JSON.stringify(err))
+          .map((err) => (typeof err?.msg === 'string' ? err.msg : JSON.stringify(err)))
           .join('; ');
       }
     } catch {

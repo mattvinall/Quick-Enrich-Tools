@@ -20,6 +20,10 @@ from app.models import Job
 
 logger = logging.getLogger(__name__)
 
+# Hold strong references to fire-and-forget error-persistence tasks so the GC
+# can't reap them mid-flight. Tasks self-remove on completion.
+_pending_failure_writes: set[asyncio.Task] = set()
+
 
 async def mark_job_failed(job_id: uuid.UUID, exc: BaseException) -> None:
     """Set Job.status='failed' and record the error so the UI can surface it.
@@ -32,7 +36,9 @@ async def mark_job_failed(job_id: uuid.UUID, exc: BaseException) -> None:
     try:
         async with AsyncSessionLocal() as db:
             job_result = await db.execute(select(Job).where(Job.id == job_id))
-            job = job_result.scalar_one()
+            job = job_result.scalar_one_or_none()
+            if job is None:
+                return
             job.status = "failed"
             job.error_message = message
             await db.commit()
@@ -46,7 +52,9 @@ async def mark_job_failed(job_id: uuid.UUID, exc: BaseException) -> None:
     try:
         async with AsyncSessionLocal() as db:
             job_result = await db.execute(select(Job).where(Job.id == job_id))
-            job = job_result.scalar_one()
+            job = job_result.scalar_one_or_none()
+            if job is None:
+                return
             job.error_message = message
             await db.commit()
     except Exception as inner2:
@@ -69,6 +77,8 @@ def make_failure_callback(
         exc = t.exception()
         if exc is not None:
             logger_.error("%s failed for job %s: %s", label, job_id, exc)
-            asyncio.create_task(mark_job_failed(job_id, exc))
+            failure_task = asyncio.create_task(mark_job_failed(job_id, exc))
+            _pending_failure_writes.add(failure_task)
+            failure_task.add_done_callback(_pending_failure_writes.discard)
 
     return _on_done
