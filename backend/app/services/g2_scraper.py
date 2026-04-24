@@ -231,15 +231,48 @@ def _parse_g2_category_html(html: str) -> tuple[list[dict], int]:
             logger.debug("Failed to parse G2 product card: %s", exc)
             continue
 
+    # Pagination parsing is best-effort; G2's markup has changed repeatedly and
+    # silent parse failures previously capped discovery at page 1. Try several
+    # candidate selectors; the caller also stops when a page returns no new products,
+    # so total_pages is advisory rather than authoritative.
     total_pages = 1
-    pagination = soup.select('a[aria-label*="Page"]') or soup.select('.pagination a')
+    pagination_selectors = [
+        'a[aria-label*="Page"]',
+        'a[aria-label*="page"]',
+        '.pagination a',
+        'nav[aria-label*="pagination" i] a',
+        'a[data-pagination]',
+        'a[href*="page="]',
+    ]
+    pagination: list = []
+    for sel in pagination_selectors:
+        pagination = soup.select(sel)
+        if pagination:
+            break
+
     for link in pagination:
         text = link.get_text(strip=True)
         try:
             page_num = int(text)
             total_pages = max(total_pages, page_num)
-        except ValueError:
             continue
+        except ValueError:
+            pass
+        # Fallback: extract from the href ?page=N
+        href = link.get("href", "") or ""
+        m = re.search(r"[?&]page=(\d+)", href)
+        if m:
+            try:
+                total_pages = max(total_pages, int(m.group(1)))
+            except ValueError:
+                pass
+
+    if not pagination and products:
+        logger.info(
+            "G2 PAGINATION: no pagination links matched any selector; relying on "
+            "products-per-page heuristic to decide stop. products_on_page=%d",
+            len(products),
+        )
 
     return products, total_pages
 
@@ -255,7 +288,7 @@ async def discover_g2_category_via_scrape(
 
     Returns list of product dicts, or None if scraping failed (caller should fallback to Serper).
     """
-    cache_key = make_cache_key("g2_cat_scrape_v2", category_slug, str(max_products))
+    cache_key = make_cache_key("g2_cat_scrape_v3", category_slug, str(max_products))
     try:
         cached = await cache_get(cache_key)
         if cached is not None and isinstance(cached, dict):
@@ -363,9 +396,19 @@ async def discover_g2_category_via_scrape(
 
         if len(all_products) >= max_products:
             break
-        if len(products) < 15:
+        # Stop if this page added no new unique products (dedup exhausted).
+        added_this_page = len([
+            p for p in products
+            if _extract_product_slug(p.get("g2_url", "")) in seen_slugs
+        ])
+        # If the page returned a full batch (~15) keep paginating even when
+        # total_pages reported a lower ceiling — the pagination selector may
+        # simply not have matched G2's current markup.
+        if len(products) < 10 and added_this_page < 1:
             break
-        if page >= total_pages:
+        # Only trust total_pages as a hard stop when pagination links were
+        # actually found; otherwise we fall back to empty-page detection above.
+        if total_pages > 1 and page >= total_pages:
             break
 
         await asyncio.sleep(1.5)
