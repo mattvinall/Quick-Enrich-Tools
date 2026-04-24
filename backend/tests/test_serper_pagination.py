@@ -31,52 +31,90 @@ async def test_search_company_requests_num_100(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_batch_search_maps_paginates_and_yields_more_than_one_page(monkeypatch):
-    """batch_search_maps should paginate past 20 places and hit Serper with page>=2."""
-    call_pages: list[int] = []
+async def test_batch_search_maps_expands_to_nearby_cities(monkeypatch):
+    """batch_search_maps should fan out to nearby cities parsed from seed addresses
+    and return more than the 20-per-call Serper cap."""
+    call_locations: list[str] = []
 
     async def fake_search_maps(client, query, location="", api_key=None, page=1):
-        call_pages.append(page)
-        if page == 1:
-            places = [{"title": f"Biz{i}", "website": f"biz{i}.com"} for i in range(20)]
-        elif page == 2:
-            places = [{"title": f"Biz{i+20}", "website": f"biz{i+20}.com"} for i in range(20)]
+        call_locations.append(location)
+        if location == "Austin, TX":
+            # Seed page: 20 places whose addresses point at nearby Austin-area cities
+            cities = ["Round Rock", "Cedar Park", "Pflugerville"]
+            places = [
+                {
+                    "title": f"Biz{i}",
+                    "placeId": f"seed-{i}",
+                    "website": f"biz{i}.com",
+                    "address": f"{100+i} Main St, {cities[i % len(cities)]}, TX 78701",
+                }
+                for i in range(20)
+            ]
         else:
-            places = []
+            # Expansion call: return a fresh set of 20 places unique to this city
+            places = [
+                {
+                    "title": f"{location}-Biz{i}",
+                    "placeId": f"{location}-{i}",
+                    "website": f"{location.lower().replace(' ', '')}-biz{i}.com",
+                    "address": f"{i} Elm St, {location} 78664",
+                }
+                for i in range(20)
+            ]
         return {"query": query, "places": places}
 
     monkeypatch.setattr("app.services.serper.search_maps", fake_search_maps)
 
     result = await batch_search_maps(
-        [{"search_term": "coffee", "location": "Austin"}],
-        max_per_search=40,
+        [{"search_term": "coffee", "location": "Austin, TX"}],
+        max_per_search=100,
     )
 
-    assert 2 in call_pages, f"expected to call page 2, got pages: {call_pages}"
-    assert len(result) >= 30, f"expected >=30 deduped places across 2 pages, got {len(result)}"
+    # First call is the seed, subsequent calls are the fan-out cities
+    assert call_locations[0] == "Austin, TX"
+    nearby_calls = [loc for loc in call_locations[1:] if loc]
+    assert nearby_calls, f"expected fan-out calls after seed, got: {call_locations}"
+    # Should have called at least two different nearby cities (parsed from seed addresses)
+    assert len(set(nearby_calls)) >= 2, (
+        f"expected fan-out to multiple nearby cities, got: {nearby_calls}"
+    )
+    # Final result should exceed a single call's 20 cap
+    assert len(result) > 20, f"expected >20 deduped places after fan-out, got {len(result)}"
 
 
 @pytest.mark.asyncio
 async def test_batch_search_maps_stops_at_max_per_search(monkeypatch):
-    """Pagination must stop once we have max_per_search results for that term."""
-    call_pages: list[int] = []
+    """Fan-out must stop once max_per_search is reached."""
+    call_locations: list[str] = []
 
     async def fake_search_maps(client, query, location="", api_key=None, page=1):
-        call_pages.append(page)
-        return {
-            "query": query,
-            "places": [
-                {"title": f"Biz-{page}-{i}", "website": f"biz-{page}-{i}.com"}
+        call_locations.append(location)
+        if location == "Austin, TX":
+            places = [
+                {
+                    "title": f"Seed{i}",
+                    "placeId": f"seed-{i}",
+                    "address": f"{i} Main St, Round Rock, TX 78664",
+                }
                 for i in range(20)
-            ],
-        }
+            ]
+        else:
+            places = [
+                {
+                    "title": f"{location}-{i}",
+                    "placeId": f"{location}-{i}",
+                    "address": f"{i} Oak, {location} 78664",
+                }
+                for i in range(20)
+            ]
+        return {"query": query, "places": places}
 
     monkeypatch.setattr("app.services.serper.search_maps", fake_search_maps)
 
     result = await batch_search_maps(
-        [{"search_term": "coffee", "location": "Austin"}],
+        [{"search_term": "coffee", "location": "Austin, TX"}],
         max_per_search=25,
     )
 
-    assert len(result) >= 20, "expected at least 20 results from first page"
-    assert 3 not in call_pages, f"should not have called page 3 (max 25 hit on page 2), got {call_pages}"
+    # We got at least the 20 seed results; fan-out fired to fill to 25
+    assert 20 <= len(result) <= 25, f"expected 20-25 results with cap=25, got {len(result)}"

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from urllib.parse import urlparse
 
 import httpx
@@ -9,6 +10,43 @@ from app.services.cache import cache_get, cache_set, make_cache_key
 from app.services.retry import retry_async
 
 logger = logging.getLogger(__name__)
+
+# Matches the "City, ST 12345" tail of a US address. Capture groups: city, state.
+# Anchored to the ZIP so we don't grab street-address fragments like "SW 32nd Ave".
+_CITY_STATE_RE = re.compile(r"([A-Z][A-Za-z .\-']{1,40}),\s*([A-Z]{2})\s+\d{5}")
+
+
+def _extract_nearby_cities(
+    places: list[dict[str, object]],
+    exclude_location: str,
+    limit: int,
+) -> list[str]:
+    """Mine Google Maps addresses for unique 'City, ST' tuples to fan out to.
+
+    Excludes any candidate whose text overlaps the user's original location
+    (case-insensitive) so we don't waste a call re-fetching what we already
+    pulled. Returns cities ordered by how often they appear in the seed
+    results (most frequent first), tie-broken alphabetically.
+    """
+    exclude = exclude_location.strip().lower()
+    counts: dict[str, int] = {}
+    for p in places:
+        address = str(p.get("address") or "")
+        match = _CITY_STATE_RE.search(address)
+        if not match:
+            continue
+        city = match.group(1).strip()
+        state = match.group(2).strip()
+        candidate = f"{city}, {state}"
+        cand_lower = candidate.lower()
+        # Skip when user's input location is already this city or contains it
+        # ("Miami, FL" should not re-query "Miami, FL" or "Miami")
+        if exclude and (exclude in cand_lower or cand_lower in exclude or
+                        city.lower() in exclude):
+            continue
+        counts[candidate] = counts.get(candidate, 0) + 1
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [c for c, _ in ordered[:limit]]
 
 
 def _parse_domain(url: str) -> str:
@@ -216,10 +254,30 @@ async def batch_search_maps(
     """
     limit = concurrency if concurrency is not None else settings.serper_concurrency
     per_search_cap = max_per_search if max_per_search is not None else settings.maps_max_per_search
-    page_cap = settings.maps_max_pages_per_search
     semaphore = asyncio.Semaphore(limit)
+    expand = settings.maps_expand_to_nearby_cities
+    expansion_cap = settings.maps_expansion_max_cities
 
     async with httpx.AsyncClient() as client:
+
+        async def _call_maps(term: str, location_str: str) -> list[dict[str, object]]:
+            """Single /maps call with retry + semaphore. Returns [] on failure."""
+            async with semaphore:
+                try:
+                    result = await retry_async(
+                        lambda l=location_str: search_maps(
+                            client, term, l, api_key=api_key, page=1
+                        ),
+                        max_retries=3,
+                        base_delay=1.0,
+                    )
+                    return result.get("places") or []
+                except Exception as exc:
+                    logger.warning(
+                        "Maps search failed for '%s in %s': %s",
+                        term, location_str, exc,
+                    )
+                    return []
 
         async def _search_one(
             search: dict[str, str],
@@ -227,29 +285,55 @@ async def batch_search_maps(
             term = search["search_term"]
             loc = search["location"]
             collected: list[dict[str, object]] = []
-            async with semaphore:
-                for page in range(1, page_cap + 1):
-                    try:
-                        result = await retry_async(
-                            lambda t=term, l=loc, p=page: search_maps(
-                                client, t, l, api_key=api_key, page=p
-                            ),
-                            max_retries=3,
-                            base_delay=1.0,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Maps search failed for '%s in %s' page=%d: %s",
-                            term, loc, page, exc,
-                        )
-                        break
-                    page_places = result.get("places") or []
-                    if not page_places:
-                        break
-                    collected.extend(page_places)
+            seen_ids: set[str] = set()
+
+            def _ingest(places: list[dict[str, object]]) -> bool:
+                """Add unseen places by placeId. Returns True once cap is hit."""
+                for p in places:
+                    pid = str(
+                        p.get("placeId") or p.get("cid") or p.get("title") or ""
+                    )
+                    if not pid or pid in seen_ids:
+                        continue
+                    seen_ids.add(pid)
+                    collected.append(p)
                     if len(collected) >= per_search_cap:
-                        collected = collected[:per_search_cap]
-                        break
+                        return True
+                return False
+
+            # Phase 1: primary call with the user's location.
+            initial = await _call_maps(term, loc)
+            if _ingest(initial) or not initial:
+                return term, loc, collected
+
+            # Phase 2: fan out to nearby cities mined from initial addresses.
+            # Serper /maps caps at 20 per call and page 2+ is empirically empty,
+            # so the only way to exceed 20 is to vary the location parameter.
+            if not expand or not loc:
+                return term, loc, collected
+
+            nearby_cities = _extract_nearby_cities(
+                initial, exclude_location=loc, limit=expansion_cap,
+            )
+            if not nearby_cities:
+                return term, loc, collected
+
+            logger.info(
+                "MAPS EXPAND: term='%s' base='%s' seed=%d unique, fanning out to %d nearby: %s",
+                term, loc, len(collected), len(nearby_cities), nearby_cities,
+            )
+
+            expansions = await asyncio.gather(
+                *[_call_maps(term, city) for city in nearby_cities]
+            )
+            for places in expansions:
+                if _ingest(places):
+                    break
+
+            logger.info(
+                "MAPS EXPAND DONE: term='%s' base='%s' total unique=%d",
+                term, loc, len(collected),
+            )
             return term, loc, collected
 
         raw_outcomes = await asyncio.gather(
