@@ -162,9 +162,14 @@ export default function CompanyLocationFinderPage() {
     selectedFile: File | null,
     parsedHeaders: string[],
     parsedRows: Record<string, string>[],
-    _rawText?: string,
+    rawText?: string,
   ) {
-    setFile(selectedFile);
+    // Paste mode passes rawText with no File. Synthesize one so the upload
+    // pipeline (which requires multipart/form-data with a File) works.
+    const fileToUse =
+      selectedFile ??
+      (rawText ? new File([rawText], 'pasted.csv', { type: 'text/csv' }) : null);
+    setFile(fileToUse);
     setHeaders(parsedHeaders);
     setPreview(parsedRows.slice(0, 5));
     setAllRows(parsedRows);
