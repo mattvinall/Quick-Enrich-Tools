@@ -28,3 +28,4 @@ dump.rdb
 
 # Playwright MCP scratch output
 .playwright-mcp/
+.gstack/

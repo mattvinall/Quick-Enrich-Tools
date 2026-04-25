@@ -184,6 +184,10 @@ async def enrich_company(
             timeout=15.0,
         )
         response.raise_for_status()
+        # QuickEnrich returns Content-Type: application/json with no charset.
+        # httpx then falls back to charset detection, which can guess Latin-1
+        # for mostly-ASCII payloads and mangle UTF-8 names like "Tobias Lütke".
+        response.encoding = "utf-8"
         return response
 
     try:
