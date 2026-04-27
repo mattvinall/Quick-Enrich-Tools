@@ -308,18 +308,18 @@ async def enrich_person(
     linkedin_url: str = "",
     api_key: str | None = None,
 ) -> dict[str, str] | None:
-    """Look up a single person via QuickEnrich.
+    """Look up a single person via QuickEnrich's /employees/search endpoint.
 
-    Tries the LinkedIn-URL endpoint first when we have one (exact match), then
-    falls back to company_url + first_name + last_name. Returns the contact
-    dict, or None if not found / API error.
+    Tries linkedin_url first (works alone, exact match on the QE-stored profile
+    URL), then falls back to company_url + first_name + last_name. Returns
+    None when the person isn't in QuickEnrich's dataset or the API errors.
 
-    QuickEnrich's documented inputs (per their n8n integration) are:
-      - linkedin_url (exact match), or
-      - company_url + first_name + last_name (exact match).
-    Title is a response field, not an input. The legacy enrich_company path
-    misuses title as a search filter, which is why the title-driven lookups
-    silently dropped non-executive people.
+    Note this is a different endpoint than enrich_company's dataset-search:
+      - dataset-search: requires company_url + title; returns array, filtered
+        on title substring. Cannot find a specific named person whose title
+        you don't know.
+      - employees/search: returns one record by linkedin_url OR
+        company_url+first_name+last_name. The right primitive for People Intel.
     """
     cache_key = make_cache_key(
         "enrich_person",
@@ -335,7 +335,7 @@ async def enrich_person(
 
     async def _do_request(params: dict[str, str]) -> httpx.Response:
         response = await client.get(
-            "https://app.quickenrich.io/api/employees/dataset-search",
+            "https://app.quickenrich.io/api/employees/search",
             params=params,
             headers=headers,
             timeout=15.0,
@@ -344,39 +344,41 @@ async def enrich_person(
         response.encoding = "utf-8"
         return response
 
-    def _records_from_response(data: object) -> list[dict]:
+    def _record_from_response(payload: object) -> dict | None:
+        # /employees/search returns {"data": {…record…}} on hit, {"data": []}
+        # on miss. Be defensive about both shapes plus a top-level dict.
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data")
+        if isinstance(data, dict) and data:
+            return data
         if isinstance(data, list):
-            return [r for r in data if isinstance(r, dict)]
-        if isinstance(data, dict):
-            payload = data.get("data") or data.get("results") or []
-            if isinstance(payload, list):
-                return [r for r in payload if isinstance(r, dict)]
-        return []
+            for entry in data:
+                if isinstance(entry, dict):
+                    return entry
+        return None
 
     contact: dict[str, str] | None = None
 
     try:
-        # Pass 1: linkedin_url (most reliable when Phase 0 found a profile)
         if linkedin_url:
             try:
                 resp = await retry_async(
                     lambda: _do_request({"linkedin_url": linkedin_url}),
                     max_retries=3, base_delay=1.0,
                 )
-                for record in _records_from_response(resp.json()):
+                record = _record_from_response(resp.json())
+                if record is not None:
                     first = str(record.get("first_name") or "").strip()
                     last = str(record.get("last_name") or "").strip()
-                    if not _name_passes_filter(first, last):
-                        continue
-                    contact = _record_to_contact(record)
-                    break
+                    if _name_passes_filter(first, last):
+                        contact = _record_to_contact(record)
             except Exception as exc:
                 logger.info(
                     "enrich_person linkedin_url miss for %s: %s: %s",
                     linkedin_url, type(exc).__name__, exc,
                 )
 
-        # Pass 2: company_url + first_name + last_name (when Pass 1 missed)
         if contact is None and domain:
             first, last = _split_full_name(full_name)
             if first and last:
@@ -389,20 +391,8 @@ async def enrich_person(
                         }),
                         max_retries=3, base_delay=1.0,
                     )
-                    candidates = _records_from_response(resp.json())
-                    # Prefer the candidate whose name matches our expected name;
-                    # QE's match is exact, but defensive in case it returns more.
-                    for record in candidates:
-                        got_first = str(record.get("first_name") or "").strip()
-                        got_last = str(record.get("last_name") or "").strip()
-                        if not _name_passes_filter(got_first, got_last):
-                            continue
-                        if contact_matches_person_name(got_first, got_last, full_name):
-                            contact = _record_to_contact(record)
-                            break
-                    # If no exact match but only one candidate came back, accept it.
-                    if contact is None and len(candidates) == 1:
-                        record = candidates[0]
+                    record = _record_from_response(resp.json())
+                    if record is not None:
                         got_first = str(record.get("first_name") or "").strip()
                         got_last = str(record.get("last_name") or "").strip()
                         if _name_passes_filter(got_first, got_last):
