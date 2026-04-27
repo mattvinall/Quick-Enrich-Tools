@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, DollarSign, Grid3X3, Map, MapPin, Search, UserSearch, Users } from "lucide-react";
+import { ArrowRight, DollarSign, Github, Grid3X3, Map, MapPin, Search, UserSearch, Users } from "lucide-react";
+
+const GITHUB_REPO_URL = "https://github.com/<your-handle>/quickenrich-tools";
 import { tools } from "@/lib/tool-registry";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
@@ -48,7 +50,18 @@ export default function HomePage() {
   const activeTools = tools.filter((t) => t.isActive);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-16">
+    <div className="max-w-5xl mx-auto px-6 py-16 relative">
+      <a
+        href={GITHUB_REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="View source on GitHub"
+        className="absolute top-6 right-6 inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-primary transition-colors"
+      >
+        <Github className="w-5 h-5" />
+        <span className="hidden sm:inline">GitHub</span>
+      </a>
+
       <motion.div
         className="text-center mb-14"
         initial={{ opacity: 0, y: 20 }}
@@ -95,6 +108,38 @@ export default function HomePage() {
           </motion.div>
         ))}
       </div>
+
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.6 }}
+        className="mt-20 pt-12 border-t border-border/60"
+      >
+        <div className="max-w-2xl mx-auto text-center space-y-4">
+          <h2 className="text-2xl font-semibold text-text-primary">
+            Open source. Clone it.
+          </h2>
+          <p className="text-text-secondary">
+            Every tool here is in a public repo you can clone, customize with
+            Claude Code or any other AI agent, and self-host on your own stack
+            — Supabase, Neon, Firebase, Railway, Fly, Vercel, Netlify, your
+            call.
+          </p>
+          <pre className="bg-muted/60 text-sm p-4 rounded-lg overflow-x-auto text-left max-w-xl mx-auto border border-border/40">
+            <code>git clone {GITHUB_REPO_URL}.git</code>
+          </pre>
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:opacity-90 transition-opacity"
+          >
+            <Github className="w-4 h-4" />
+            Get the source on GitHub
+            <ArrowRight className="w-4 h-4" />
+          </a>
+        </div>
+      </motion.section>
     </div>
   );
 }
