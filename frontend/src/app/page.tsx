@@ -4,7 +4,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowRight, DollarSign, Github, Grid3X3, Map, MapPin, Search, UserSearch, Users } from "lucide-react";
 
-const GITHUB_REPO_URL = "https://github.com/<your-handle>/quickenrich-tools";
+const GITHUB_REPO_URL = "https://github.com/mattvinall/Quick-Enrich-Tools";
 import { tools } from "@/lib/tool-registry";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {

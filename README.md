@@ -20,7 +20,7 @@ coding agent, and (optionally) self-host for your team.
 ## Run it locally in 5 minutes
 
 ```bash
-git clone https://github.com/<your-handle>/quickenrich-tools.git
+git clone https://github.com/mattvinall/Quick-Enrich-Tools.git
 cd quickenrich-tools
 
 # 1. Local Postgres + Redis
