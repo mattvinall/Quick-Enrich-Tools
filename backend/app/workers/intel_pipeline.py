@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models import EmailCapture, Job, JobResult
 from app.services.email_service import send_results_email
-from app.services.enrichment import batch_enrich, contact_matches_person_name
+from app.services.enrichment import batch_enrich, batch_enrich_people, contact_matches_person_name
 from app.services.scraper import batch_crawl, extract_generic_emails
 from app.services.intel_extractor import batch_extract_intel
 from app.services.serper import batch_search
@@ -312,6 +312,13 @@ async def _phase_crawl_worker(
     """Phase 3: Crawl company websites using Scrape.do."""
     options = config.get("options", {})
     scrape_do_api_key = config.get("scrape_do_api_key") or None
+    # Skip crawling entirely when no extraction option needs page text. People
+    # Intel runs in this mode — pure LinkedIn search + QE name lookup, no
+    # scraping. Without this gate, every job would crawl homepages even when
+    # the result is unused, burning Scrape.do credits.
+    skip_scrape = not any(
+        options.get(k) for k in ("industry_description", "target_market", "homepage_raw_text")
+    )
 
     try:
         async with AsyncSessionLocal() as db:
@@ -331,6 +338,19 @@ async def _phase_crawl_worker(
                     select(JobResult).where(JobResult.id.in_(result_ids))
                 )
                 batch_results = list(result.scalars().all())
+
+                if skip_scrape:
+                    for r in batch_results:
+                        if r.raw_domain:
+                            r.status = "crawled"
+                        else:
+                            r.status = "not_found"
+                    await db.commit()
+                    total_crawled += len(batch_results)
+                    progress["crawl"] = total_crawled
+                    await update_job_progress(db, job_id, "crawl", total_crawled, total_rows)
+                    await queue_out.put(result_ids)
+                    continue
 
                 domains_to_crawl: list[str] = []
                 for r in batch_results:
@@ -393,7 +413,10 @@ async def _phase_extract_worker(
 ) -> None:
     """Phase 4: Extract structured intel from scraped content using LLM."""
     options = config.get("options", {})
-    needs_llm = any(options.get(k) for k in ("industry_description", "target_market", "company_people"))
+    # LLM extraction reads scraped page text. company_people no longer feeds the
+    # LLM (we now look up named people via QuickEnrich's first/last name search,
+    # not LLM extraction over homepage HTML), so it's not in this list.
+    needs_llm = any(options.get(k) for k in ("industry_description", "target_market"))
 
     try:
         async with AsyncSessionLocal() as db:
@@ -498,12 +521,22 @@ async def _phase_enrich_worker(
     progress: dict[str, int],
     completion_event: asyncio.Event,
 ) -> None:
-    """Phase 5: Enrich contacts via QuickEnrich API (optional)."""
+    """Phase 5: Enrich contacts via QuickEnrich API (optional).
+
+    Two modes:
+      - Per-domain (default): one QE dataset-search per domain filtered by
+        the configured job_titles, used by Company / Maps / G2 / Funding Intel.
+      - Per-person (people_mode=True): one QE lookup per row keyed on the
+        row's full_name + linkedin_url, used by People Intel. Avoids the
+        title filter entirely so non-executives like sales reps and ICs
+        aren't silently dropped.
+    """
     options = config.get("options", {})
     enrich_people = options.get("company_people", False)
     quickenrich_api_key = config.get("quickenrich_api_key") or None
     job_titles: list[str] = config.get("job_titles", [])
     max_contacts: int = int(config.get("max_contacts", 3))
+    people_mode: bool = bool(config.get("people_mode", False))
 
     try:
         async with AsyncSessionLocal() as db:
@@ -519,7 +552,10 @@ async def _phase_enrich_worker(
 
                 result_ids: list[uuid.UUID] = msg
 
-                if not enrich_people or not job_titles or not quickenrich_api_key:
+                # In people_mode, job_titles is irrelevant — we look up by name.
+                # Other tools require job_titles to drive the title-based search.
+                titles_required = not people_mode
+                if not enrich_people or not quickenrich_api_key or (titles_required and not job_titles):
                     # Enrichment entirely skipped for this job — no rows
                     # gained 'enriched' status, so don't inflate the counter.
                     # (The phase-progress UI still advances via update_job_progress.)
@@ -532,59 +568,93 @@ async def _phase_enrich_worker(
                 )
                 batch_results = list(result.scalars().all())
 
-                domains_with_rows: dict[str, list[int]] = {}
-                for r in batch_results:
-                    if r.normalized_domain:
-                        domains_with_rows.setdefault(r.normalized_domain, []).append(r.row_index)
+                if people_mode:
+                    person_rows: list[dict] = []
+                    for r in batch_results:
+                        domain = r.normalized_domain or r.raw_domain or ""
+                        input_data = r.input_data if isinstance(r.input_data, dict) else {}
+                        full_name = str(input_data.get("full_name") or "")
+                        linkedin_url = str(input_data.get("linkedin_url") or "")
+                        if not full_name or not (domain or linkedin_url):
+                            continue
+                        person_rows.append({
+                            "row_index": r.row_index,
+                            "full_name": full_name,
+                            "domain": domain,
+                            "linkedin_url": linkedin_url,
+                        })
 
-                if domains_with_rows:
-                    outcomes_by_domain = await batch_enrich(
-                        domains_with_rows,
-                        job_titles=job_titles,
-                        max_contacts=max_contacts,
-                        api_key=quickenrich_api_key,
-                    )
+                    contacts_by_row: dict[int, dict[str, str] | None] = {}
+                    if person_rows:
+                        contacts_by_row = await batch_enrich_people(
+                            person_rows, api_key=quickenrich_api_key,
+                        )
 
-                    result_by_row = {r.row_index: r for r in batch_results}
-                    for domain, row_indices in domains_with_rows.items():
-                        outcome = outcomes_by_domain.get(domain)
-                        if outcome is None:
-                            domain_contacts: list[dict[str, str]] = []
+                    for r in batch_results:
+                        contact = contacts_by_row.get(r.row_index)
+                        if contact:
+                            r.contacts = [contact]
+                            r.status = "enriched"
                         else:
-                            domain_contacts = outcome.contacts
-                            if outcome.error is not None:
-                                logger.warning(
-                                    "Enrichment error for domain=%s job_id=%s: %s",
-                                    domain, job_id, outcome.error,
-                                )
-                        for row_index in row_indices:
-                            job_result = result_by_row.get(row_index)
-                            if job_result is None:
-                                continue
-                            # People Intel sets full_name on the input row — when
-                            # present, filter the domain-level contacts down to
-                            # those matching the expected person. Other tools
-                            # (Maps/G2/Funding) don't set full_name, so the full
-                            # contact list passes through unchanged.
-                            expected_name = ""
-                            if isinstance(job_result.input_data, dict):
-                                expected_name = str(job_result.input_data.get("full_name") or "")
-                            if expected_name and domain_contacts:
-                                row_contacts = [
-                                    c for c in domain_contacts
-                                    if contact_matches_person_name(
-                                        c.get("first_name", ""),
-                                        c.get("last_name", ""),
-                                        expected_name,
-                                    )
-                                ]
-                            else:
-                                row_contacts = domain_contacts
-                            job_result.contacts = row_contacts
-                            if row_contacts:
-                                job_result.status = "enriched"
+                            r.contacts = []
 
                     await db.commit()
+
+                else:
+                    domains_with_rows: dict[str, list[int]] = {}
+                    for r in batch_results:
+                        if r.normalized_domain:
+                            domains_with_rows.setdefault(r.normalized_domain, []).append(r.row_index)
+
+                    if domains_with_rows:
+                        outcomes_by_domain = await batch_enrich(
+                            domains_with_rows,
+                            job_titles=job_titles,
+                            max_contacts=max_contacts,
+                            api_key=quickenrich_api_key,
+                        )
+
+                        result_by_row = {r.row_index: r for r in batch_results}
+                        for domain, row_indices in domains_with_rows.items():
+                            outcome = outcomes_by_domain.get(domain)
+                            if outcome is None:
+                                domain_contacts: list[dict[str, str]] = []
+                            else:
+                                domain_contacts = outcome.contacts
+                                if outcome.error is not None:
+                                    logger.warning(
+                                        "Enrichment error for domain=%s job_id=%s: %s",
+                                        domain, job_id, outcome.error,
+                                    )
+                            for row_index in row_indices:
+                                job_result = result_by_row.get(row_index)
+                                if job_result is None:
+                                    continue
+                                # Maps/G2/Funding never set full_name; this filter is
+                                # a leftover safety net from when People Intel reused
+                                # the per-domain enrich path. Now that People Intel
+                                # has its own per-row branch above, expected_name is
+                                # ~always empty here, so the full contact list
+                                # passes through.
+                                expected_name = ""
+                                if isinstance(job_result.input_data, dict):
+                                    expected_name = str(job_result.input_data.get("full_name") or "")
+                                if expected_name and domain_contacts:
+                                    row_contacts = [
+                                        c for c in domain_contacts
+                                        if contact_matches_person_name(
+                                            c.get("first_name", ""),
+                                            c.get("last_name", ""),
+                                            expected_name,
+                                        )
+                                    ]
+                                else:
+                                    row_contacts = domain_contacts
+                                job_result.contacts = row_contacts
+                                if row_contacts:
+                                    job_result.status = "enriched"
+
+                        await db.commit()
 
                 # Count only rows whose status is 'enriched' after this batch;
                 # len(result_ids) would include rows that skipped enrichment

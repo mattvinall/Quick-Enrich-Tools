@@ -22,7 +22,7 @@ type Phase = 'input' | 'configure' | 'submit' | 'processing' | 'results';
 
 const PHASE_ORDER: Phase[] = ['input', 'configure', 'submit', 'processing', 'results'];
 
-const PIPELINE_PHASES = ['LinkedIn Search', 'Resolve', 'Crawl', 'Extract', 'Enrich', 'Deliver'] as const;
+const PIPELINE_PHASES = ['LinkedIn Search', 'Resolve', 'Enrich', 'Deliver'] as const;
 
 const STEP_MAP: Partial<Record<Phase, { step: number; total: number; label: string }>> = {
   input:      { step: 1, total: 4, label: 'Upload your data' },
@@ -135,21 +135,18 @@ export default function PeopleIntelPage() {
     setCsvError('');
   };
 
-  // Extraction options — People Intel forces companyPeople on and homepageRawText off.
-  // Only Industry & Target Market are user-toggleable here.
-  const [industryDescription, setIndustryDescription] = useState(true);
-  const [targetMarket, setTargetMarket] = useState(true);
+  // People Intel does not scrape pages — it's pure LinkedIn search +
+  // QuickEnrich name lookup. So all intel options that depend on Scrape.do
+  // (industry/target market/homepage raw text) are off, and Scrape.do is
+  // not collected.
+  const industryDescription = false;
+  const targetMarket = false;
   const companyPeople = true;
   const homepageRawText = false;
 
   // API keys
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
   const [serperApiKey, setSerperApiKey] = useState('');
-  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
-
-  // Contact config
-  const [jobTitles, setJobTitles] = useState<string[]>(['CEO', 'Founder']);
-  const [maxContacts, setMaxContacts] = useState(3);
 
   // Job state — restore from localStorage (skip if JWT already expired)
   const [jobId, setJobId] = useState<string | null>(() => {
@@ -223,12 +220,10 @@ export default function PeopleIntelPage() {
 
   // Validation
   const hasData = items.length > 0;
-  const hasOptions = industryDescription || targetMarket || companyPeople || homepageRawText;
   const hasRequiredKeys =
     serperApiKey.trim().length > 0 &&
-    scrapeDoApiKey.trim().length > 0 &&
     quickenrichApiKey.trim().length > 0;
-  const canSubmit = hasData && hasOptions && hasRequiredKeys;
+  const canSubmit = hasData && hasRequiredKeys;
 
   async function handleEmailSubmit(email: string) {
     setIsSubmitting(true);
@@ -248,9 +243,9 @@ export default function PeopleIntelPage() {
           },
           serper_api_key: serperApiKey,
           quickenrich_api_key: quickenrichApiKey,
-          scrape_do_api_key: scrapeDoApiKey,
-          job_titles: companyPeople ? jobTitles : [],
-          max_contacts: companyPeople ? maxContacts : 1,
+          scrape_do_api_key: '',
+          job_titles: [],
+          max_contacts: 1,
         },
         capture.token,
       );
@@ -455,21 +450,19 @@ export default function PeopleIntelPage() {
                     targetMarket={targetMarket}
                     companyPeople={companyPeople}
                     homepageRawText={homepageRawText}
-                    onIndustryDescriptionChange={setIndustryDescription}
-                    onTargetMarketChange={setTargetMarket}
+                    onIndustryDescriptionChange={() => {}}
+                    onTargetMarketChange={() => {}}
                     onCompanyPeopleChange={() => {}}
                     onHomepageRawTextChange={() => {}}
                     quickenrichApiKey={quickenrichApiKey}
                     onQuickenrichApiKeyChange={setQuickenrichApiKey}
-                    jobTitles={jobTitles}
-                    onJobTitlesChange={setJobTitles}
-                    maxContacts={maxContacts}
-                    onMaxContactsChange={setMaxContacts}
+                    jobTitles={[]}
+                    onJobTitlesChange={() => {}}
+                    maxContacts={1}
+                    onMaxContactsChange={() => {}}
                     hasCompanyNames={true}
                     serperApiKey={serperApiKey}
                     onSerperApiKeyChange={setSerperApiKey}
-                    scrapeDoApiKey={scrapeDoApiKey}
-                    onScrapeDoApiKeyChange={setScrapeDoApiKey}
                     peopleMode
                   />
 

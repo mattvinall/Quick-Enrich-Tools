@@ -83,14 +83,16 @@ def test_people_router_csv_headers_match_row_length():
     """Verify CSV header count matches row output count."""
     from app.routers.people import _build_people_headers, _extract_people_row
 
+    # People Intel doesn't scrape, so industry/target_market/homepage_raw_text
+    # are typically all off — but the CSV must still line up if a legacy job
+    # had them on. Cover the all-on case.
     options = {
         "industry_description": True,
         "target_market": True,
         "company_people": True,
         "homepage_raw_text": True,
     }
-    max_contacts = 3
-    headers = _build_people_headers(options, max_contacts=max_contacts)
+    headers = _build_people_headers(options)
 
     class FakeResult:
         input_data = {"full_name": "Test", "company_name": "TestCo"}
@@ -101,5 +103,10 @@ def test_people_router_csv_headers_match_row_length():
         contacts = [{"title": "CEO", "first_name": "A", "last_name": "B", "email": "a@b.com", "phone": "", "linkedin_url": ""}]
         status = "extracted"
 
-    row = _extract_people_row(FakeResult(), options, max_contacts=max_contacts)
+    row = _extract_people_row(FakeResult(), options)
     assert len(headers) == len(row), f"Headers ({len(headers)}) != Row ({len(row)})"
+
+    # And verify the empty-options case (the new People Intel default).
+    bare_headers = _build_people_headers({})
+    bare_row = _extract_people_row(FakeResult(), {})
+    assert len(bare_headers) == len(bare_row)

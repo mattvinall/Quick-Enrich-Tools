@@ -10,6 +10,13 @@ import { discoverFunding, FundingCompany } from '@/lib/api';
 const ROUND_FILTERS = ['All', 'Seed', 'Series A', 'Series B', 'Series C+', 'Growth', 'Unknown'] as const;
 type RoundFilter = typeof ROUND_FILTERS[number];
 
+const HOURS_LABEL: Record<number, string> = {
+  24: '24-hour',
+  48: '48-hour',
+  72: '3-day',
+  168: '7-day',
+};
+
 const ROUND_BADGE_COLORS: Record<string, string> = {
   seed: 'bg-blue-100 text-blue-700',
   'series a': 'bg-green-100 text-green-700',
@@ -146,23 +153,25 @@ export default function FundingDiscoveryPanel({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={loadCompanies}
-            disabled={!serperApiKey.trim() || loading}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors',
-              'bg-primary text-white hover:bg-primary/90',
-              'disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed',
-            )}
-          >
-            {loading ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Search className="w-3 h-3" />
-            )}
-            {hasDiscovered ? 'Refresh' : 'Discover'}
-          </button>
+          {hasDiscovered && (
+            <button
+              type="button"
+              onClick={loadCompanies}
+              disabled={!serperApiKey.trim() || loading}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors',
+                'bg-primary text-white hover:bg-primary/90',
+                'disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed',
+              )}
+            >
+              {loading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
+              Refresh
+            </button>
+          )}
         </div>
 
         {selectedCompanies.length > 0 && (
@@ -226,11 +235,26 @@ export default function FundingDiscoveryPanel({
             </p>
           </div>
         ) : !hasDiscovered ? (
-          <div className="flex flex-col items-center justify-center h-32 gap-1 px-4 text-center">
-            <p className="text-sm font-medium text-text-primary">Ready to discover</p>
-            <p className="text-xs text-text-secondary">
-              Pick a time range and click Discover.
+          <div className="flex flex-col items-center justify-center min-h-[160px] gap-3 px-4 py-6 text-center">
+            <p className="text-sm font-medium text-text-primary">
+              Ready to discover funded companies
             </p>
+            <p className="text-xs text-text-secondary -mt-1">
+              Using the {HOURS_LABEL[hours] ?? '7-day'} window above.
+            </p>
+            <button
+              type="button"
+              onClick={loadCompanies}
+              disabled={!serperApiKey.trim() || loading}
+              className={cn(
+                'flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-md transition-colors shadow-sm',
+                'bg-primary text-white hover:bg-primary/90',
+                'disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed disabled:shadow-none',
+              )}
+            >
+              <Search className="w-4 h-4" />
+              Discover Funded Companies
+            </button>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center h-32 gap-2 text-sm text-text-secondary">

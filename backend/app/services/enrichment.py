@@ -245,24 +245,7 @@ async def enrich_company(
                 if dedup_key is not None:
                     seen_keys.add(dedup_key)
 
-                contacts.append(
-                    {
-                        "title": str(record.get("title") or ""),
-                        "first_name": first,
-                        "last_name": last,
-                        "email": email,
-                        "phone": str(record.get("employee_phone") or record.get("phone") or ""),
-                        "mobile": str(
-                            record.get("employee_mobile")
-                            or record.get("mobile")
-                            or record.get("mobile_phone")
-                            or ""
-                        ),
-                        "linkedin_url": str(
-                            record.get("employee_linkedin") or record.get("linkedin_url") or ""
-                        ),
-                    }
-                )
+                contacts.append(_record_to_contact(record))
             if len(contacts) >= max_contacts:
                 break
 
@@ -287,6 +270,216 @@ class EnrichmentOutcome:
     """
     contacts: list[dict[str, str]]
     error: str | None = None
+
+
+def _split_full_name(full_name: str) -> tuple[str, str]:
+    """Split a full name into (first, last). 'Mary Anne Smith' -> ('Mary Anne', 'Smith')."""
+    tokens = (full_name or "").strip().split()
+    if not tokens:
+        return "", ""
+    if len(tokens) == 1:
+        return tokens[0], ""
+    return " ".join(tokens[:-1]), tokens[-1]
+
+
+def _record_to_contact(record: dict) -> dict[str, str]:
+    return {
+        "title": str(record.get("title") or ""),
+        "first_name": str(record.get("first_name") or "").strip(),
+        "last_name": str(record.get("last_name") or "").strip(),
+        "email": str(record.get("email") or "").strip(),
+        "phone": str(record.get("employee_phone") or record.get("phone") or ""),
+        "mobile": str(
+            record.get("employee_mobile")
+            or record.get("mobile")
+            or record.get("mobile_phone")
+            or ""
+        ),
+        "linkedin_url": str(
+            record.get("employee_linkedin") or record.get("linkedin_url") or ""
+        ),
+    }
+
+
+async def enrich_person(
+    client: httpx.AsyncClient,
+    full_name: str,
+    domain: str,
+    linkedin_url: str = "",
+    api_key: str | None = None,
+) -> dict[str, str] | None:
+    """Look up a single person via QuickEnrich.
+
+    Tries the LinkedIn-URL endpoint first when we have one (exact match), then
+    falls back to company_url + first_name + last_name. Returns the contact
+    dict, or None if not found / API error.
+
+    QuickEnrich's documented inputs (per their n8n integration) are:
+      - linkedin_url (exact match), or
+      - company_url + first_name + last_name (exact match).
+    Title is a response field, not an input. The legacy enrich_company path
+    misuses title as a search filter, which is why the title-driven lookups
+    silently dropped non-executive people.
+    """
+    cache_key = make_cache_key(
+        "enrich_person",
+        (linkedin_url or "").lower(),
+        (domain or "").lower(),
+        full_name.lower(),
+    )
+    cached = await cache_get(cache_key)
+    if cached is not None and isinstance(cached, dict):
+        return cached.get("contact")  # type: ignore[return-value]
+
+    headers = {"Authorization": f"Bearer {api_key or settings.quickenrich_api_key}"}
+
+    async def _do_request(params: dict[str, str]) -> httpx.Response:
+        response = await client.get(
+            "https://app.quickenrich.io/api/employees/dataset-search",
+            params=params,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        response.encoding = "utf-8"
+        return response
+
+    def _records_from_response(data: object) -> list[dict]:
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)]
+        if isinstance(data, dict):
+            payload = data.get("data") or data.get("results") or []
+            if isinstance(payload, list):
+                return [r for r in payload if isinstance(r, dict)]
+        return []
+
+    contact: dict[str, str] | None = None
+
+    try:
+        # Pass 1: linkedin_url (most reliable when Phase 0 found a profile)
+        if linkedin_url:
+            try:
+                resp = await retry_async(
+                    lambda: _do_request({"linkedin_url": linkedin_url}),
+                    max_retries=3, base_delay=1.0,
+                )
+                for record in _records_from_response(resp.json()):
+                    first = str(record.get("first_name") or "").strip()
+                    last = str(record.get("last_name") or "").strip()
+                    if not _name_passes_filter(first, last):
+                        continue
+                    contact = _record_to_contact(record)
+                    break
+            except Exception as exc:
+                logger.info(
+                    "enrich_person linkedin_url miss for %s: %s: %s",
+                    linkedin_url, type(exc).__name__, exc,
+                )
+
+        # Pass 2: company_url + first_name + last_name (when Pass 1 missed)
+        if contact is None and domain:
+            first, last = _split_full_name(full_name)
+            if first and last:
+                try:
+                    resp = await retry_async(
+                        lambda: _do_request({
+                            "company_url": domain,
+                            "first_name": first,
+                            "last_name": last,
+                        }),
+                        max_retries=3, base_delay=1.0,
+                    )
+                    candidates = _records_from_response(resp.json())
+                    # Prefer the candidate whose name matches our expected name;
+                    # QE's match is exact, but defensive in case it returns more.
+                    for record in candidates:
+                        got_first = str(record.get("first_name") or "").strip()
+                        got_last = str(record.get("last_name") or "").strip()
+                        if not _name_passes_filter(got_first, got_last):
+                            continue
+                        if contact_matches_person_name(got_first, got_last, full_name):
+                            contact = _record_to_contact(record)
+                            break
+                    # If no exact match but only one candidate came back, accept it.
+                    if contact is None and len(candidates) == 1:
+                        record = candidates[0]
+                        got_first = str(record.get("first_name") or "").strip()
+                        got_last = str(record.get("last_name") or "").strip()
+                        if _name_passes_filter(got_first, got_last):
+                            contact = _record_to_contact(record)
+                except Exception as exc:
+                    logger.info(
+                        "enrich_person name miss for %s @ %s: %s: %s",
+                        full_name, domain, type(exc).__name__, exc,
+                    )
+
+        await cache_set(cache_key, {"contact": contact}, settings.cache_ttl_days)
+    except Exception as exc:
+        logger.warning(
+            "enrich_person error for %s @ %s: %s: %s",
+            full_name, domain, type(exc).__name__, exc,
+        )
+
+    return contact
+
+
+async def batch_enrich_people(
+    rows: list[dict],
+    concurrency: int | None = None,
+    api_key: str | None = None,
+) -> dict[int, dict[str, str] | None]:
+    """Enrich a batch of people, one QuickEnrich lookup per unique person.
+
+    `rows` is a list of {"row_index": int, "full_name": str, "domain": str,
+    "linkedin_url": str}. Duplicate (linkedin_url, domain, full_name) tuples
+    in the input share a single QE lookup; the result is fanned back out to
+    every row_index that had that key. Returns {row_index: contact_or_None}.
+    """
+    limit = concurrency if concurrency is not None else settings.enrich_concurrency
+    semaphore = asyncio.Semaphore(limit)
+
+    keys_to_rows: dict[tuple[str, str, str], list[int]] = {}
+    keys_to_payload: dict[tuple[str, str, str], dict[str, str]] = {}
+    for row in rows:
+        full_name = row.get("full_name", "") or ""
+        domain = row.get("domain", "") or ""
+        linkedin_url = row.get("linkedin_url", "") or ""
+        key = (linkedin_url.lower(), domain.lower(), full_name.lower())
+        keys_to_rows.setdefault(key, []).append(int(row["row_index"]))
+        keys_to_payload.setdefault(key, {
+            "full_name": full_name,
+            "domain": domain,
+            "linkedin_url": linkedin_url,
+        })
+
+    async with httpx.AsyncClient() as client:
+
+        async def _one(key: tuple[str, str, str]) -> tuple[tuple[str, str, str], dict[str, str] | None]:
+            payload = keys_to_payload[key]
+            async with semaphore:
+                contact = await enrich_person(
+                    client,
+                    full_name=payload["full_name"],
+                    domain=payload["domain"],
+                    linkedin_url=payload["linkedin_url"],
+                    api_key=api_key,
+                )
+                return key, contact
+
+        outcomes = await asyncio.gather(
+            *[_one(k) for k in keys_to_rows], return_exceptions=True,
+        )
+
+    results: dict[int, dict[str, str] | None] = {}
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            logger.warning("batch_enrich_people outer failure: %s", outcome)
+            continue
+        key, contact = outcome
+        for row_index in keys_to_rows.get(key, []):
+            results[row_index] = contact
+
+    return results
 
 
 async def batch_enrich(

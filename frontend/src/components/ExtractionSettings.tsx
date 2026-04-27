@@ -33,9 +33,10 @@ interface ExtractionSettingsProps {
   onSerperApiKeyChange?: (v: string) => void;
   scrapeDoApiKey?: string;
   onScrapeDoApiKeyChange?: (v: string) => void;
-  // People Intel mode: hide org-wide contact controls that don't apply to per-person search.
-  // companyPeople is forced on by the parent; homepageRawText, title input, and max-contacts
-  // are hidden so the settings page only exposes the QuickEnrich + Serper key fields.
+  // People Intel mode: hide everything except the API-key fields.
+  // companyPeople is forced on by the parent; the page-scrape options
+  // (industry/target market/homepage raw text) are off because People Intel
+  // doesn't scrape, and Scrape.do is therefore not collected.
   peopleMode?: boolean;
 }
 
@@ -135,36 +136,38 @@ export default function ExtractionSettings({
         Select the data points you want to retrieve.
       </p>
 
-      <div className="space-y-4">
-        <CheckboxItem
-          checked={industryDescription}
-          onChange={onIndustryDescriptionChange}
-          label="Industry & Description"
-          description="Retrieves Industry, Niche, and a ~600 word company description."
-        />
-        <CheckboxItem
-          checked={targetMarket}
-          onChange={onTargetMarketChange}
-          label="Target Market"
-          description="Identifies Target Market and extracts Case Studies company names."
-        />
-        {!peopleMode && (
+      {peopleMode ? (
+        <p className="text-xs text-text-secondary -mt-2">
+          We&apos;ll search LinkedIn for each person and pull their email, phone, title, and LinkedIn URL from QuickEnrich. No website scraping is performed.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <CheckboxItem
+            checked={industryDescription}
+            onChange={onIndustryDescriptionChange}
+            label="Industry & Description"
+            description="Retrieves Industry, Niche, and a ~600 word company description."
+          />
+          <CheckboxItem
+            checked={targetMarket}
+            onChange={onTargetMarketChange}
+            label="Target Market"
+            description="Identifies Target Market and extracts Case Studies company names."
+          />
           <CheckboxItem
             checked={companyPeople}
             onChange={onCompanyPeopleChange}
             label="Company's People"
             description="Finds Contacts (name, title, email, phone) and generic emails."
           />
-        )}
-        {!peopleMode && (
           <CheckboxItem
             checked={homepageRawText}
             onChange={onHomepageRawTextChange}
             label="Home Page Raw Text"
             description="Returns the raw, viewable text scraped from the home page."
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {companyPeople && (
         <div className="space-y-4 pt-2 border-t border-border">

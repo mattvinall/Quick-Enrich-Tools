@@ -18,7 +18,6 @@ import pytest
     "app.routers.maps",
     "app.routers.g2",
     "app.routers.intel",
-    "app.routers.people",
 ])
 def test_intel_extracted_flag_empty(module_name):
     """No extracted_data → 'false' on every router."""
@@ -33,7 +32,6 @@ def test_intel_extracted_flag_empty(module_name):
     "app.routers.maps",
     "app.routers.g2",
     "app.routers.intel",
-    "app.routers.people",
 ])
 @pytest.mark.parametrize("intel_field", [
     "industry", "niche", "description",
@@ -51,7 +49,6 @@ def test_intel_extracted_flag_true_when_any_field(module_name, intel_field):
     "app.routers.maps",
     "app.routers.g2",
     "app.routers.intel",
-    "app.routers.people",
 ])
 def test_intel_extracted_flag_false_when_only_unrelated_keys(module_name):
     """Fields that aren't intel (general_emails, address) don't count."""
@@ -182,18 +179,31 @@ def test_maps_router_row_includes_flag():
     assert rows[0][idx] == "true"
 
 
-def test_people_router_row_includes_flag():
-    from app.routers.people import _extract_people_row, _build_people_headers
-    options = {"industry_description": True, "company_people": True}
-    headers = _build_people_headers(options, max_contacts=3)
+def test_people_router_uses_single_contact_columns():
+    """People Intel is 1:1 — no contact_1_/contact_2_ pattern, no intel_extracted column."""
+    from app.routers.people import _build_people_headers, _extract_people_row
+    options = {}
+    headers = _build_people_headers(options)
+    assert "intel_extracted" not in headers
+    assert "contact_email" in headers
+    assert not any(h.startswith("contact_1_") for h in headers)
+
     result = SimpleNamespace(
-        input_data={"full_name": "Alice", "company_name": "Acme"},
-        extracted_data={"description": "An SaaS company."},
+        input_data={
+            "full_name": "Alice Smith",
+            "company_name": "Acme",
+            "linkedin_url": "https://linkedin.com/in/alice",
+            "linkedin_confidence": 0.95,
+        },
+        extracted_data={},
         normalized_domain="acme.com",
         raw_domain="acme.com",
         status="enriched",
-        contacts=[],
+        contacts=[{
+            "title": "Engineer", "first_name": "Alice", "last_name": "Smith",
+            "email": "alice@acme.com", "phone": "555-1", "linkedin_url": "https://linkedin.com/in/alice",
+        }],
     )
-    row = _extract_people_row(result, options, max_contacts=3)
-    idx = headers.index("intel_extracted")
-    assert row[idx] == "true"
+    row = _extract_people_row(result, options)
+    assert row[headers.index("contact_email")] == "alice@acme.com"
+    assert row[headers.index("contact_first_name")] == "Alice"

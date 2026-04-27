@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import AsyncSessionLocal
@@ -34,6 +35,13 @@ async def run_people_pipeline(ctx: dict, job_id: str) -> None:
         job = job_result.scalar_one()
         config = job.config or {}
         total_rows = job.total_rows
+
+        # Tag the job config so the shared intel pipeline switches its enrich
+        # phase to per-row name-based lookup instead of per-domain title search.
+        if not config.get("people_mode"):
+            config["people_mode"] = True
+            job.config = config
+            flag_modified(job, "config")
 
         job.status = "linkedin_searching"
         job.started_at = datetime.now(timezone.utc)

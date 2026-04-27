@@ -138,16 +138,18 @@ async def submit_people_extraction(
 # ── CSV Download ─────────────────────────────────────────────────────
 
 _BATCH_SIZE = 500
-_BASE_COLUMNS = ["full_name", "company_name", "linkedin_url", "linkedin_confidence", "website", "status", "intel_extracted"]
-_CONTACT_FIELDS = ["Title", "First Name", "Last Name", "Email", "Phone", "LinkedIn"]
-
-
-def _intel_extracted_flag(extracted: dict) -> str:
-    """True when homepage scrape + LLM produced any intel field. See funding.py for context."""
-    if not isinstance(extracted, dict):
-        return "false"
-    intel_keys = ("industry", "niche", "description", "target_market", "case_studies", "homepage_raw_text")
-    return "true" if any(extracted.get(k) for k in intel_keys) else "false"
+# People Intel is 1:1 — one input row maps to one person and (at most) one
+# contact, so the CSV uses a single un-numbered contact_* column block instead
+# of the contact_1_… contact_5_ pattern that Company Intel uses for many-per-co.
+_BASE_COLUMNS = ["full_name", "company_name", "linkedin_url", "linkedin_confidence", "website", "status"]
+_CONTACT_COLUMNS = [
+    "contact_title",
+    "contact_first_name",
+    "contact_last_name",
+    "contact_email",
+    "contact_phone",
+    "contact_linkedin",
+]
 
 
 def _sanitize_csv(value: str) -> str:
@@ -157,7 +159,7 @@ def _sanitize_csv(value: str) -> str:
     return value
 
 
-def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5) -> list[str]:
+def _extract_people_row(result: JobResult, options: dict) -> list[str]:
     input_data = result.input_data or {}
     extracted = result.extracted_data or {}
 
@@ -171,7 +173,7 @@ def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5)
     website = result.normalized_domain or result.raw_domain or ""
     row_status = result.status
 
-    base = [full_name, company_name, linkedin_url, confidence_str, website, row_status, _intel_extracted_flag(extracted)]
+    base = [full_name, company_name, linkedin_url, confidence_str, website, row_status]
 
     intel_cells: list[str] = []
     if options.get("industry_description"):
@@ -192,24 +194,26 @@ def _extract_people_row(result: JobResult, options: dict, max_contacts: int = 5)
         intel_cells.append(str(extracted.get("homepage_raw_text") or ""))
 
     raw_contacts = result.contacts
-    all_contacts: list[dict] = []
+    contact: dict = {}
     if isinstance(raw_contacts, list):
-        all_contacts = [c for c in raw_contacts if isinstance(c, dict)]
+        for c in raw_contacts:
+            if isinstance(c, dict):
+                contact = c
+                break
 
-    contact_cells: list[str] = []
-    for idx in range(max_contacts):
-        contact = all_contacts[idx] if idx < len(all_contacts) else {}
-        contact_cells.append(_sanitize_csv(contact.get("title", "")))
-        contact_cells.append(_sanitize_csv(contact.get("first_name", "")))
-        contact_cells.append(_sanitize_csv(contact.get("last_name", "")))
-        contact_cells.append(_sanitize_csv(contact.get("email", "")))
-        contact_cells.append(contact.get("phone", ""))
-        contact_cells.append(contact.get("linkedin_url", ""))
+    contact_cells = [
+        _sanitize_csv(contact.get("title", "")),
+        _sanitize_csv(contact.get("first_name", "")),
+        _sanitize_csv(contact.get("last_name", "")),
+        _sanitize_csv(contact.get("email", "")),
+        contact.get("phone", "") or "",
+        contact.get("linkedin_url", "") or "",
+    ]
 
     return base + intel_cells + contact_cells
 
 
-def _build_people_headers(options: dict, max_contacts: int = 5) -> list[str]:
+def _build_people_headers(options: dict) -> list[str]:
     headers = list(_BASE_COLUMNS)
 
     if options.get("industry_description"):
@@ -221,9 +225,7 @@ def _build_people_headers(options: dict, max_contacts: int = 5) -> list[str]:
     if options.get("homepage_raw_text"):
         headers.append("homepage_raw_text")
 
-    for i in range(1, max_contacts + 1):
-        for field in _CONTACT_FIELDS:
-            headers.append(f"contact_{i}_{field.lower().replace(' ', '_')}")
+    headers.extend(_CONTACT_COLUMNS)
 
     return headers
 

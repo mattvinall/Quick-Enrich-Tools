@@ -24,12 +24,17 @@ class TestBuildPeopleHeaders:
         assert "description" in headers
 
     def test_includes_contact_columns(self):
-        headers = _build_people_headers({"company_people": True}, max_contacts=2)
-        assert "contact_1_title" in headers
-        assert "contact_2_title" in headers
+        # People Intel is 1:1 — exactly one un-numbered contact_* block,
+        # never contact_1_/contact_2_.
+        headers = _build_people_headers({"company_people": True})
+        assert "contact_title" in headers
+        assert "contact_email" in headers
+        assert "contact_linkedin" in headers
+        assert not any(h.startswith("contact_1_") for h in headers)
+        assert not any(h.startswith("contact_2_") for h in headers)
 
     def test_base_only_when_no_options(self):
-        headers = _build_people_headers({}, max_contacts=0)
+        headers = _build_people_headers({})
         assert "industry" not in headers
         assert "target_market" not in headers
 
@@ -53,7 +58,7 @@ class TestExtractPeopleRow:
             contacts = []
             status = "extracted"
 
-        row = _extract_people_row(FakeResult(), {}, max_contacts=0)
+        row = _extract_people_row(FakeResult(), {})
         assert row[0] == "Fred Smith"
         assert row[1] == "Apple"
         assert row[2] == "https://linkedin.com/in/fredsmith"
@@ -71,7 +76,7 @@ class TestExtractPeopleRow:
             contacts = []
             status = "not_found"
 
-        row = _extract_people_row(FakeResult(), {}, max_contacts=0)
+        row = _extract_people_row(FakeResult(), {})
         assert row[0] == "Fred Smith"
         assert row[2] == ""  # linkedin_url absent
         assert row[3] == ""  # confidence absent
