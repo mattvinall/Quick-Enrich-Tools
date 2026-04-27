@@ -48,7 +48,7 @@ Before any later task can execute, the user must:
 
 1. Rotate Serper API key.
 2. Rotate Gemini API key.
-3. Rotate OpenAI API key (`REDACTED_OPENAI_KEY_FRAGMENT…`).
+3. Rotate OpenAI API key.
 4. Rotate QuickEnrich API key.
 5. Update Railway env vars + local `.env` with new values.
 6. Smoke-test one tool end-to-end on staging/prod.
@@ -1221,7 +1221,7 @@ rm scrub-replacements.txt
 
 ```bash
 git log --all -p > /tmp/post_scrub.txt
-grep -c 'REDACTED_SERPER_KEY\|REDACTED_GEMINI_KEY\|REDACTED_OPENAI_KEY_FRAGMENT\|REDACTED_QUICKENRICH_KEY' /tmp/post_scrub.txt
+grep -c 'REDACTED_SERPER_KEY\|REDACTED_GEMINI_KEY\|REDACTED_OPENAI_KEY\|REDACTED_QUICKENRICH_KEY' /tmp/post_scrub.txt
 rm /tmp/post_scrub.txt
 ```
 Expected: `0` matches.
@@ -1247,7 +1247,7 @@ git remote add origin git@github.com:<your-handle>/quickenrich-tools.git
 
 ```bash
 git log --all -p > /tmp/full_history.txt
-grep -nE '(sk-proj-|sk_live_|sk_test_[A-Za-z0-9]{20,}|re_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{30,}|REDACTED_SERPER_KEY_FRAGMENT|eyJ[A-Za-z0-9_-]{40,})' /tmp/full_history.txt | grep -v REDACTED | head -20
+grep -nE '(sk-proj-[A-Za-z0-9]{20,}|sk_live_|sk_test_[A-Za-z0-9]{20,}|re_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{30,}|eyJ[A-Za-z0-9_-]{40,})' /tmp/full_history.txt | grep -v REDACTED | head -20
 rm /tmp/full_history.txt
 ```
 Expected: empty output. Any hit means a key was missed; investigate before proceeding.
