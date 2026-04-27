@@ -1,0 +1,47 @@
+# Local-mode infrastructure for QuickEnrich.
+# Brings up Postgres 16 + Redis 7 on the standard ports so the backend
+# (uvicorn) and frontend (npm run dev) can run on the host.
+#
+# Usage:
+#   docker compose up -d              # start in background
+#   docker compose down               # stop
+#   docker compose down -v            # stop and wipe volumes (fresh DB)
+#
+# Backend connects via DATABASE_URL=postgresql+asyncpg://quickenrich:quickenrich@localhost:5432/quickenrich
+# Backend connects via REDIS_URL=redis://localhost:6379
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quickenrich-postgres
+    environment:
+      POSTGRES_USER: quickenrich
+      POSTGRES_PASSWORD: quickenrich
+      POSTGRES_DB: quickenrich
+    ports:
+      - "5432:5432"
+    volumes:
+      - quickenrich_pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickenrich -d quickenrich"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: quickenrich-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - quickenrich_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  quickenrich_pgdata:
+  quickenrich_redisdata:
