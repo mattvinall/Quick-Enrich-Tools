@@ -136,38 +136,42 @@ export default function ExtractionSettings({
         Select the data points you want to retrieve.
       </p>
 
-      {peopleMode ? (
+      {peopleMode && (
         <p className="text-xs text-text-secondary -mt-2">
-          We&apos;ll search LinkedIn for each person and pull their email, phone, title, and LinkedIn URL from QuickEnrich. No website scraping is performed.
+          We always pull each person&apos;s email, phone, title, and LinkedIn from QuickEnrich. Optionally enrich each row with the company&apos;s industry or target market — that needs Scrape.do.
         </p>
-      ) : (
-        <div className="space-y-4">
-          <CheckboxItem
-            checked={industryDescription}
-            onChange={onIndustryDescriptionChange}
-            label="Industry & Description"
-            description="Retrieves Industry, Niche, and a ~600 word company description."
-          />
-          <CheckboxItem
-            checked={targetMarket}
-            onChange={onTargetMarketChange}
-            label="Target Market"
-            description="Identifies Target Market and extracts Case Studies company names."
-          />
+      )}
+
+      <div className="space-y-4">
+        <CheckboxItem
+          checked={industryDescription}
+          onChange={onIndustryDescriptionChange}
+          label="Industry & Description"
+          description="Retrieves Industry, Niche, and a ~600 word company description."
+        />
+        <CheckboxItem
+          checked={targetMarket}
+          onChange={onTargetMarketChange}
+          label="Target Market"
+          description="Identifies Target Market and extracts Case Studies company names."
+        />
+        {!peopleMode && (
           <CheckboxItem
             checked={companyPeople}
             onChange={onCompanyPeopleChange}
             label="Company's People"
             description="Finds Contacts (name, title, email, phone) and generic emails."
           />
+        )}
+        {!peopleMode && (
           <CheckboxItem
             checked={homepageRawText}
             onChange={onHomepageRawTextChange}
             label="Home Page Raw Text"
             description="Returns the raw, viewable text scraped from the home page."
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {companyPeople && (
         <div className="space-y-4 pt-2 border-t border-border">

@@ -22,7 +22,7 @@ type Phase = 'input' | 'configure' | 'submit' | 'processing' | 'results';
 
 const PHASE_ORDER: Phase[] = ['input', 'configure', 'submit', 'processing', 'results'];
 
-const PIPELINE_PHASES = ['LinkedIn Search', 'Resolve', 'Enrich', 'Deliver'] as const;
+const PIPELINE_PHASES = ['LinkedIn Search', 'Resolve', 'Crawl', 'Extract', 'Enrich', 'Deliver'] as const;
 
 const STEP_MAP: Partial<Record<Phase, { step: number; total: number; label: string }>> = {
   input:      { step: 1, total: 4, label: 'Upload your data' },
@@ -135,18 +135,18 @@ export default function PeopleIntelPage() {
     setCsvError('');
   };
 
-  // People Intel does not scrape pages — it's pure LinkedIn search +
-  // QuickEnrich name lookup. So all intel options that depend on Scrape.do
-  // (industry/target market/homepage raw text) are off, and Scrape.do is
-  // not collected.
-  const industryDescription = false;
-  const targetMarket = false;
+  // Default People Intel to pure LinkedIn + QE lookup (no scraping). Users
+  // can opt in to industry / target-market context per person, which switches
+  // on Scrape.do + LLM extraction over the company homepage.
+  const [industryDescription, setIndustryDescription] = useState(false);
+  const [targetMarket, setTargetMarket] = useState(false);
   const companyPeople = true;
   const homepageRawText = false;
 
   // API keys
   const [quickenrichApiKey, setQuickenrichApiKey] = useState('');
   const [serperApiKey, setSerperApiKey] = useState('');
+  const [scrapeDoApiKey, setScrapeDoApiKey] = useState('');
 
   // Job state — restore from localStorage (skip if JWT already expired)
   const [jobId, setJobId] = useState<string | null>(() => {
@@ -220,9 +220,11 @@ export default function PeopleIntelPage() {
 
   // Validation
   const hasData = items.length > 0;
+  const needsScrapeDo = industryDescription || targetMarket;
   const hasRequiredKeys =
     serperApiKey.trim().length > 0 &&
-    quickenrichApiKey.trim().length > 0;
+    quickenrichApiKey.trim().length > 0 &&
+    (!needsScrapeDo || scrapeDoApiKey.trim().length > 0);
   const canSubmit = hasData && hasRequiredKeys;
 
   async function handleEmailSubmit(email: string) {
@@ -243,7 +245,7 @@ export default function PeopleIntelPage() {
           },
           serper_api_key: serperApiKey,
           quickenrich_api_key: quickenrichApiKey,
-          scrape_do_api_key: '',
+          scrape_do_api_key: needsScrapeDo ? scrapeDoApiKey : '',
           job_titles: [],
           max_contacts: 1,
         },
@@ -450,8 +452,8 @@ export default function PeopleIntelPage() {
                     targetMarket={targetMarket}
                     companyPeople={companyPeople}
                     homepageRawText={homepageRawText}
-                    onIndustryDescriptionChange={() => {}}
-                    onTargetMarketChange={() => {}}
+                    onIndustryDescriptionChange={setIndustryDescription}
+                    onTargetMarketChange={setTargetMarket}
                     onCompanyPeopleChange={() => {}}
                     onHomepageRawTextChange={() => {}}
                     quickenrichApiKey={quickenrichApiKey}
@@ -463,6 +465,8 @@ export default function PeopleIntelPage() {
                     hasCompanyNames={true}
                     serperApiKey={serperApiKey}
                     onSerperApiKeyChange={setSerperApiKey}
+                    scrapeDoApiKey={scrapeDoApiKey}
+                    onScrapeDoApiKeyChange={needsScrapeDo ? setScrapeDoApiKey : undefined}
                     peopleMode
                   />
 
