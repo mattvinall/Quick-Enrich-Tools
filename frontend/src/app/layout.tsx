@@ -1,14 +1,33 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import Image from "next/image";
-import Link from "next/link";
+import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { SiteHeader } from "@/components/SiteHeader";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-fraunces",
+  display: "swap",
+  axes: ["opsz", "SOFT"],
+});
+
+const plexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-sans",
+  display: "swap",
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-plex-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "QuickEnrich Tools",
-  description: "Free data enrichment tools by QuickEnrich",
+  title: "QuickEnrich Tools — Free, open-source lead enrichment",
+  description:
+    "Six free tools to find companies, enrich data, and surface fresh leads. Open source under MIT. Run them here, or clone the repo and self-host on your own stack.",
 };
 
 export default function RootLayout({
@@ -17,44 +36,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} min-h-screen`}>
-        <header className="border-b border-[#e5e7eb]">
-          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-            <a
-              href="https://quickenrich.io"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="QuickEnrich home"
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              <Image
-                src="/quickenrich-logo.png"
-                alt="QuickEnrich"
-                width={140}
-                height={32}
-                className="h-8 w-auto"
-                priority
-              />
-            </a>
-            <nav className="flex items-center gap-5">
-              <Link
-                href="/"
-                className="text-sm text-[#6b7280] hover:text-[#2b7ec8] transition-colors"
-              >
-                All tools
-              </Link>
-              <a
-                href="https://quickenrich.io"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-[#6b7280] hover:text-[#2b7ec8] transition-colors"
-              >
-                quickenrich.io
-              </a>
-            </nav>
-          </div>
-        </header>
+    <html
+      lang="en"
+      className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable}`}
+    >
+      <body className="min-h-screen bg-canvas text-ink font-sans antialiased">
+        <SiteHeader />
         <main>{children}</main>
       </body>
     </html>

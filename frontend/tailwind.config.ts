@@ -38,9 +38,19 @@ const config: Config = {
         },
         "text-primary": "#1f2937",
         "text-secondary": "#6b7280",
+        // Editorial palette (homepage redesign)
+        canvas: "#fbf8f3",
+        ink: "#0c0c0e",
+        "muted-ink": "#605d54",
+        "border-warm": "#e8e3d8",
+        deep: "#0c0c0e",
+        cream: "#f5efe2",
+        "cream-muted": "#bfb8a8",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: ["var(--font-plex-sans)", "system-ui", "sans-serif"],
+        serif: ["var(--font-fraunces)", "ui-serif", "Georgia", "serif"],
+        mono: ["var(--font-plex-mono)", "ui-monospace", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",

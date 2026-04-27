@@ -36,10 +36,24 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-family: var(--font-plex-sans), system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01", "cv01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+}
+
+/* Decorative dot grid for hero background */
+.bg-dot-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(12, 12, 14, 0.07) 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+/* Subtle paper-grain noise overlay (used on the dark band) */
+.bg-grain {
+  background-image:
+    radial-gradient(circle at 0% 0%, rgba(245, 239, 226, 0.04) 0, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(43, 126, 200, 0.06) 0, transparent 50%);
 }
 
 @layer utilities {
