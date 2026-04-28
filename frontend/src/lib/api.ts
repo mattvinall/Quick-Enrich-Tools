@@ -104,25 +104,6 @@ export function getDownloadUrl(jobId: string, token: string): string {
   return `${API_URL}/api/v1/download/${jobId}?token=${encodeURIComponent(token)}`;
 }
 
-export interface ClayPushResponse {
-  pushed_count: number;
-}
-
-export function pushToClay(
-  jobId: string,
-  webhookUrl: string,
-  token: string,
-): Promise<ClayPushResponse> {
-  return fetchAPI<ClayPushResponse>(`${API_URL}/api/v1/clay-push/${jobId}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ webhook_url: webhookUrl }),
-  });
-}
-
 export interface ExtractionOptions {
   industry_description: boolean;
   target_market: boolean;

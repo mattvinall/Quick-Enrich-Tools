@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.database import engine
-from app.routers import clay, download, email_capture, jobs, tools, upload
+from app.routers import download, email_capture, jobs, tools, upload
 from app.routers import intel
 from app.routers import g2
 from app.routers import maps
@@ -61,7 +61,6 @@ app.include_router(email_capture.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(download.router, prefix="/api/v1")
-app.include_router(clay.router, prefix="/api/v1")
 app.include_router(tools.router, prefix="/api/v1")
 app.include_router(intel.router, prefix="/api/v1")
 app.include_router(g2.router, prefix="/api/v1")

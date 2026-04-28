@@ -8,7 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { getDownloadUrl } from '@/lib/api';
-import ClayPushModal from './ClayPushModal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -118,7 +117,6 @@ export default function ResultsPanel({
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [showClay, setShowClay] = useState(false);
 
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [search, setSearch] = useState('');
@@ -348,13 +346,6 @@ export default function ResultsPanel({
             Download CSV
           </a>
         </Button>
-        <Button
-          variant="outline"
-          className="flex-1"
-          onClick={() => setShowClay(true)}
-        >
-          Push to Clay
-        </Button>
       </motion.div>
 
       {/* Results table */}
@@ -554,13 +545,6 @@ export default function ResultsPanel({
       <p className="text-center text-xs text-text-secondary pb-2">
         Results have been emailed to your address.
       </p>
-
-      <ClayPushModal
-        jobId={jobId}
-        token={token}
-        open={showClay}
-        onClose={() => setShowClay(false)}
-      />
     </div>
   );
 }
