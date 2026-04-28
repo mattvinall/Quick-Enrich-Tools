@@ -41,12 +41,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_frontend_origins = [
+    origin.strip()
+    for origin in settings.frontend_url.split(",")
+    if origin.strip()
+]
+_allowed_origins = list({*_frontend_origins, "http://localhost:3000"})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        settings.frontend_url,
-        "http://localhost:3000",
-    ],
+    allow_origins=_allowed_origins,
+    allow_origin_regex=r"^https://([a-z0-9-]+\.)*quickenrich\.io$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
