@@ -16,10 +16,12 @@ import {
   UserSearch,
   Users,
 } from "lucide-react";
-import { tools } from "@/lib/tool-registry";
+import { tools, API_KEY_META, type ApiKeyKind } from "@/lib/tool-registry";
 
 const GITHUB_URL = "https://github.com/mattvinall/Quick-Enrich-Tools";
 const CLONE_CMD = `git clone ${GITHUB_URL}.git`;
+
+const QUICKENRICH_PROMO_URL = "https://app.quickenrich.io/promo";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
   "company-location-finder": (
@@ -133,6 +135,101 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ───────── What you'll need ───────── */}
+      <section className="relative max-w-6xl mx-auto px-6 pb-20">
+        <div className="flex items-baseline justify-between mb-8">
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-ink">
+            ◇ What you&apos;ll need
+          </h2>
+          <p className="hidden sm:block text-sm text-muted-ink">
+            Bring your own keys — pasted in-app, never stored on our servers.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* QuickEnrich — promo highlight */}
+          <a
+            href={QUICKENRICH_PROMO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group relative md:col-span-2 lg:col-span-1 rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/8 via-primary/4 to-transparent p-6 overflow-hidden hover:border-primary/50 transition-all"
+          >
+            <div className="absolute top-0 right-0 px-3 py-1 rounded-bl-xl bg-primary text-white text-[10px] font-mono uppercase tracking-[0.14em]">
+              50K free credits
+            </div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-primary mb-3 mt-1">
+              QuickEnrich · contact enrichment
+            </div>
+            <h3 className="font-serif text-2xl text-ink leading-tight mb-2">
+              Get 50,000 free credits
+            </h3>
+            <p className="text-sm leading-relaxed text-muted-ink mb-5">
+              The contact-enrichment engine behind every tool here. Sign up
+              through this link to claim 50,000 free credits — no card needed.
+            </p>
+            <div className="inline-flex items-center text-sm font-medium text-primary">
+              Claim credits
+              <ArrowUpRight
+                className="ml-1 w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                strokeWidth={1.75}
+              />
+            </div>
+          </a>
+
+          {/* Serper */}
+          <a
+            href="https://serper.dev"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group rounded-2xl border border-border-warm bg-white p-6 hover:border-ink/20 hover:shadow-[0_24px_50px_-30px_rgba(12,12,14,0.15)] transition-all"
+          >
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-ink mb-3">
+              Serper · search
+            </div>
+            <h3 className="text-base font-medium text-ink leading-tight mb-2">
+              Google search API
+            </h3>
+            <p className="text-sm leading-relaxed text-muted-ink mb-4">
+              Powers company / website / news lookups. Free tier covers ~2,500
+              queries to get you started.
+            </p>
+            <div className="inline-flex items-center text-sm text-ink">
+              Sign up free
+              <ArrowUpRight
+                className="ml-1 w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                strokeWidth={1.75}
+              />
+            </div>
+          </a>
+
+          {/* Scrape.do */}
+          <a
+            href="https://scrape.do"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group rounded-2xl border border-border-warm bg-white p-6 hover:border-ink/20 hover:shadow-[0_24px_50px_-30px_rgba(12,12,14,0.15)] transition-all"
+          >
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-ink mb-3">
+              Scrape.do · scraping
+            </div>
+            <h3 className="text-base font-medium text-ink leading-tight mb-2">
+              Anti-bot scraping proxy
+            </h3>
+            <p className="text-sm leading-relaxed text-muted-ink mb-4">
+              Bypasses bot protection on G2, company sites, and similar.
+              Free trial available; entry tier ~$29/mo.
+            </p>
+            <div className="inline-flex items-center text-sm text-ink">
+              Start a trial
+              <ArrowUpRight
+                className="ml-1 w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                strokeWidth={1.75}
+              />
+            </div>
+          </a>
+        </div>
+      </section>
+
       {/* ───────── Tools ───────── */}
       <section className="relative max-w-6xl mx-auto px-6 pb-24">
         <div className="flex items-baseline justify-between mb-10">
@@ -169,10 +266,14 @@ export default function HomePage() {
                 <h3 className="text-[1.05rem] font-medium text-ink leading-snug mb-2 group-hover:text-primary transition-colors">
                   {tool.name}
                 </h3>
-                <p className="text-sm leading-relaxed text-muted-ink mb-6">
+                <p className="text-sm leading-relaxed text-muted-ink mb-5">
                   {tool.description}
                 </p>
-                <div className="flex items-center text-sm font-medium text-ink">
+                <KeyPills
+                  required={tool.requiredKeys}
+                  optional={tool.optionalKeys}
+                />
+                <div className="mt-5 flex items-center text-sm font-medium text-ink">
                   Use tool
                   <ArrowUpRight
                     className="ml-1 w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
@@ -304,6 +405,42 @@ export default function HomePage() {
         </div>
       </footer>
     </>
+  );
+}
+
+function KeyPills({
+  required,
+  optional,
+}: {
+  required: ApiKeyKind[];
+  optional: ApiKeyKind[];
+}) {
+  if (required.length === 0 && optional.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-ink/70 mr-1">
+        Bring
+      </span>
+      {required.map((kind) => (
+        <span
+          key={kind}
+          className="inline-flex items-center px-2 py-0.5 rounded-md bg-canvas border border-border-warm text-[11px] font-mono text-ink"
+        >
+          {API_KEY_META[kind].label}
+        </span>
+      ))}
+      {optional.map((kind) => (
+        <span
+          key={kind}
+          className="inline-flex items-center px-2 py-0.5 rounded-md border border-dashed border-border-warm text-[11px] font-mono text-muted-ink"
+          title="Optional — unlocks contact enrichment"
+        >
+          {API_KEY_META[kind].label}
+          <span className="ml-1 text-muted-ink/60">opt.</span>
+        </span>
+      ))}
+    </div>
   );
 }
 

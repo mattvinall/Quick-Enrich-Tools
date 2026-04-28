@@ -61,6 +61,21 @@ Each provider has exactly one primary file. To swap a provider, change that
 file (or add a sibling) and update env vars. See
 [`docs/swapping-providers.md`](docs/swapping-providers.md).
 
+## Hosted vs. self-hosted: where API keys live
+
+There are two ways to run this codebase, and they handle API keys differently. The code supports both via the same fallback pattern: `effective_key = user_provided_key or settings.<key>`.
+
+| Mode | What lives in `backend/.env` | What the user types into the UI |
+|---|---|---|
+| **Hosted** (quick-enrich-tools.vercel.app, gtm.quickenrich.io) | Only `GEMINI_API_KEY` + `RESEND_API_KEY` (server-side concerns). The Serper / Scrape.do / QuickEnrich slots are blank. | All three of `serper_api_key`, `scrape_do_api_key`, `quickenrich_api_key` per-job. Required. |
+| **Self-hosted** (`git clone` + run locally or on your own infra) | All five: Gemini, Serper, Scrape.do, QuickEnrich, optional Resend. | Nothing. Fields can stay empty; the worker falls back to `settings.<key>`. |
+
+**Why this split exists:** the hosted version is intentionally a lead magnet. Backend pays only for LLM (Gemini Flash, ~$0.10–0.20/job) and email delivery. Per-call services (Serper, Scrape.do, QuickEnrich) are pushed to the user via the in-app config UI. Self-hosters have no such constraint and put everything in `.env` once.
+
+**Self-hosters: frontend caveat.** The tool config panels still surface the three key inputs even when `.env` is fully populated. They can be left empty and the backend will use `.env` defaults. A polish item is to detect this server-side and skip the prompts; not done yet.
+
+**The QuickEnrich 50K-credits promo.** The QuickEnrich API key field everywhere in the app links to `https://app.quickenrich.io/promo` — that's the canonical signup URL. New code that asks for a QuickEnrich key should link there. The promo is the primary funnel goal of the public tools site.
+
 ## Conventions
 
 **Python (backend):**

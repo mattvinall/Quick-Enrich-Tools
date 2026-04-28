@@ -53,8 +53,21 @@ You bring your own keys. The repo authors don't see any of it.
 | [Serper](https://serper.dev) | yes | free tier 2.5k searches; $50/mo for 50k |
 | [Gemini](https://ai.google.dev) (or OpenAI) | yes | free tier covers small runs |
 | [Scrape.do](https://scrape.do) | strongly recommended | $29/mo entry tier |
-| [QuickEnrich](https://quickenrich.io) | optional | per-request |
+| [QuickEnrich](https://app.quickenrich.io/promo) | for contact enrichment | **50,000 free credits** with the link |
 | Postgres + Redis | yes | free via `docker compose` |
+
+> **Tip:** QuickEnrich is offering 50K free credits to new accounts via [app.quickenrich.io/promo](https://app.quickenrich.io/promo). That covers the contact-enrichment side of the pipeline for a long time at zero cost.
+
+## Hosted vs. self-hosted (where API keys live)
+
+The same codebase supports two deployment modes. The split below is the one you'll likely follow when self-hosting:
+
+| Mode | What lives in `backend/.env` | What the user types into the UI |
+|---|---|---|
+| Hosted (the public site) | Only `GEMINI_API_KEY` + `RESEND_API_KEY` | All three: `serper`, `scrape_do`, `quickenrich` per-job |
+| **Self-hosted (you)** | All your keys: Gemini, Serper, Scrape.do, QuickEnrich, Resend (optional) | Nothing — the backend falls back to `.env` |
+
+So when you clone, you populate `backend/.env` once and forget it. The UI config fields can stay empty; the worker uses your `.env` values via `effective_key = user_provided_key or settings.<key>`.
 
 ## Want to host it for your team?
 

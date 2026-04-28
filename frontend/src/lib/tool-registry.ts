@@ -1,3 +1,33 @@
+export type ApiKeyKind = "serper" | "scrape_do" | "quickenrich";
+
+export interface ApiKeyMeta {
+  kind: ApiKeyKind;
+  label: string;
+  signupUrl: string;
+  blurb: string;
+}
+
+export const API_KEY_META: Record<ApiKeyKind, ApiKeyMeta> = {
+  serper: {
+    kind: "serper",
+    label: "Serper",
+    signupUrl: "https://serper.dev",
+    blurb: "Google search API. Free tier covers ~2.5k queries.",
+  },
+  scrape_do: {
+    kind: "scrape_do",
+    label: "Scrape.do",
+    signupUrl: "https://scrape.do",
+    blurb: "Anti-bot scraping proxy. Free trial available.",
+  },
+  quickenrich: {
+    kind: "quickenrich",
+    label: "QuickEnrich",
+    signupUrl: "https://quickenrich.io",
+    blurb: "Named-contact enrichment (email + LinkedIn).",
+  },
+};
+
 export interface ToolConfig {
   slug: string;
   name: string;
@@ -7,6 +37,10 @@ export interface ToolConfig {
   requiredColumns: string[];
   optionalColumns: string[];
   columnPatterns: Record<string, RegExp>;
+  /** API keys the user must provide to run this tool. */
+  requiredKeys: ApiKeyKind[];
+  /** API keys that unlock optional features (e.g., contact enrichment). */
+  optionalKeys: ApiKeyKind[];
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -25,6 +59,8 @@ export const tools: ToolConfig[] = [
       company_name: /company|name|org|business|brand/i,
       location: /location|city|state|address|geo|region/i,
     },
+    requiredKeys: ["serper"],
+    optionalKeys: [],
   },
   {
     slug: "company-intel",
@@ -36,6 +72,8 @@ export const tools: ToolConfig[] = [
     requiredColumns: [],
     optionalColumns: [],
     columnPatterns: {},
+    requiredKeys: ["serper", "scrape_do"],
+    optionalKeys: ["quickenrich"],
   },
   {
     slug: "g2-intel",
@@ -47,6 +85,8 @@ export const tools: ToolConfig[] = [
     requiredColumns: [],
     optionalColumns: [],
     columnPatterns: {},
+    requiredKeys: ["serper", "scrape_do"],
+    optionalKeys: ["quickenrich"],
   },
   {
     slug: "maps-intel",
@@ -58,6 +98,8 @@ export const tools: ToolConfig[] = [
     requiredColumns: [],
     optionalColumns: [],
     columnPatterns: {},
+    requiredKeys: ["serper", "scrape_do"],
+    optionalKeys: ["quickenrich"],
   },
   {
     slug: "funding-intel",
@@ -69,6 +111,8 @@ export const tools: ToolConfig[] = [
     requiredColumns: [],
     optionalColumns: [],
     columnPatterns: {},
+    requiredKeys: ["serper", "scrape_do"],
+    optionalKeys: ["quickenrich"],
   },
   {
     slug: "people-intel",
@@ -80,6 +124,8 @@ export const tools: ToolConfig[] = [
     requiredColumns: [],
     optionalColumns: [],
     columnPatterns: {},
+    requiredKeys: ["serper", "quickenrich"],
+    optionalKeys: [],
   },
 ];
 
