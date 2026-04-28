@@ -48,6 +48,13 @@ _OPTION_PRIORITIES = {
 
 
 # Rotating user agents — for direct httpx fallback
+# Hard global cap on outbound Scrape.do calls. Scrape.do enforces a per-plan
+# concurrency limit (Hobby=10, Pro=50, Business=100); going over instantly
+# 429s the whole burst. Bound every scrape_page call through this semaphore
+# so the cap holds regardless of how many callers fan out concurrently.
+_SCRAPE_DO_SEM = asyncio.Semaphore(settings.scrape_do_concurrency)
+
+
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -166,29 +173,37 @@ async def scrape_page(
         if super_proxy:
             api_url += "&super=true"
 
+        # raise_for_status() must be inside the retry lambda so retry_async
+        # actually sees 429/5xx as HTTPStatusError and retries them. Previously
+        # raise_for_status() ran after retry_async returned, meaning 429s
+        # bubbled straight up and Scrape.do's hard concurrency cap caused
+        # silent data loss on the first burst of every job.
+        async def _do_scrape_do() -> httpx.Response:
+            async with _SCRAPE_DO_SEM:
+                resp = await client.get(api_url, timeout=settings.scrape_timeout)
+            resp.raise_for_status()
+            return resp
+
         response = await retry_async(
-            lambda: client.get(
-                api_url,
-                timeout=settings.scrape_timeout,
-            ),
-            max_retries=2,
+            _do_scrape_do,
+            max_retries=3,
             base_delay=1.0,
+            max_delay=30.0,
         )
-        response.raise_for_status()
         return response.text
 
     # Direct fetch fallback (free, works for most company sites)
-    response = await retry_async(
-        lambda: client.get(
+    async def _do_direct() -> httpx.Response:
+        resp = await client.get(
             url,
             headers=_get_headers(),
             follow_redirects=True,
             timeout=settings.scrape_timeout,
-        ),
-        max_retries=2,
-        base_delay=1.0,
-    )
-    response.raise_for_status()
+        )
+        resp.raise_for_status()
+        return resp
+
+    response = await retry_async(_do_direct, max_retries=2, base_delay=1.0)
     return response.text
 
 

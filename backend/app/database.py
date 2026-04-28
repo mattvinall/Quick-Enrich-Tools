@@ -18,7 +18,11 @@ engine = create_async_engine(
         "prepared_statement_cache_size": 0,
     },
     pool_pre_ping=True,
-    pool_recycle=300,
+    # 30 min — long enough that a single ~5-min job won't trigger mid-flight
+    # connection recycling, which was racing with asyncpg cleanup and surfacing
+    # as "non-checked-in connection" GC warnings.
+    pool_recycle=1800,
+    pool_timeout=30,
 )
 
 AsyncSessionLocal = async_sessionmaker(

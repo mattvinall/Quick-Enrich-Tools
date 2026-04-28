@@ -35,7 +35,13 @@ class Settings(BaseSettings):
     normalize_batch_size: int = 200
     enrich_batch_size: int = 50
     scrape_do_api_key: str = ""
-    scrape_concurrency: int = 30
+    # Outer batch-level fan-out across domains. Real per-process cap is enforced
+    # by scrape_do_concurrency below; this just bounds asyncio task spawn rate.
+    scrape_concurrency: int = 10
+    # Hard global cap on simultaneous Scrape.do API requests. Must stay under
+    # your plan's "ConcurrentRequest" limit (Hobby=10, Pro=50, Business=100).
+    # Default 8 leaves 2 slots of headroom for retries on a Hobby plan.
+    scrape_do_concurrency: int = 8
     max_pages_per_site: int = 6
     scrape_timeout: int = 20
     intel_extraction_concurrency: int = 4  # Gemini Flash free tier ~10 RPM; 10 concurrent calls burst over the limit and silently 429

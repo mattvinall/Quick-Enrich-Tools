@@ -6,9 +6,10 @@ from app.services.retry import retry_async
 
 
 class FakeResponse:
-    def __init__(self, status_code: int):
+    def __init__(self, status_code: int, headers: dict[str, str] | None = None):
         self.status_code = status_code
         self.request = httpx.Request("GET", "https://example.com")
+        self.headers = headers or {}
 
 
 @pytest.mark.asyncio
@@ -81,3 +82,52 @@ async def test_retry_exhausts_retries():
 
     with pytest.raises(httpx.HTTPStatusError):
         await retry_async(fn, max_retries=2, base_delay=0.01)
+
+
+@pytest.mark.asyncio
+async def test_retry_honors_retry_after_seconds(monkeypatch):
+    """A numeric Retry-After header should drive the sleep duration."""
+    sleeps: list[float] = []
+
+    async def fake_sleep(d: float) -> None:
+        sleeps.append(d)
+
+    monkeypatch.setattr("app.services.retry.asyncio.sleep", fake_sleep)
+
+    call_count = 0
+
+    async def fn():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            resp = FakeResponse(429, headers={"retry-after": "2"})
+            raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+        return "ok"
+
+    result = await retry_async(fn, max_retries=3, base_delay=0.01, max_delay=10.0)
+    assert result == "ok"
+    assert sleeps == [2.0]
+
+
+@pytest.mark.asyncio
+async def test_retry_caps_retry_after_at_max_delay(monkeypatch):
+    """A wildly-large Retry-After should be clamped to max_delay."""
+    sleeps: list[float] = []
+
+    async def fake_sleep(d: float) -> None:
+        sleeps.append(d)
+
+    monkeypatch.setattr("app.services.retry.asyncio.sleep", fake_sleep)
+
+    call_count = 0
+
+    async def fn():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            resp = FakeResponse(429, headers={"retry-after": "9999"})
+            raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+        return "ok"
+
+    await retry_async(fn, max_retries=3, base_delay=0.01, max_delay=5.0)
+    assert sleeps == [5.0]

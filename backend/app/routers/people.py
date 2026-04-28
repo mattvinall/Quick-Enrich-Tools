@@ -19,7 +19,7 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
-from app.routers._job_errors import make_failure_callback
+from app.routers._job_errors import register_pipeline_task
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ async def submit_people_extraction(
     from app.workers.people_pipeline import run_people_pipeline
 
     task = asyncio.create_task(run_people_pipeline({}, str(job.id)))
-    task.add_done_callback(make_failure_callback(job.id, logger, "People pipeline"))
+    register_pipeline_task(task, job.id, logger, "People pipeline")
 
     new_token = create_token(email, str(job.id))
     return {

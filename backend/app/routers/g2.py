@@ -18,7 +18,7 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
-from app.routers._job_errors import make_failure_callback
+from app.routers._job_errors import register_pipeline_task
 from app.services.g2_categories import (
     get_all_categories,
     get_all_parents,
@@ -141,7 +141,7 @@ async def submit_g2_extraction(
     from app.workers.g2_pipeline import run_g2_pipeline
 
     task = asyncio.create_task(run_g2_pipeline({}, str(job.id)))
-    task.add_done_callback(make_failure_callback(job.id, logger, "G2 pipeline"))
+    register_pipeline_task(task, job.id, logger, "G2 pipeline")
 
     new_token = create_token(email, str(job.id))
     return {

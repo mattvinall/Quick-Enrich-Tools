@@ -24,6 +24,34 @@ logger = logging.getLogger(__name__)
 # can't reap them mid-flight. Tasks self-remove on completion.
 _pending_failure_writes: set[asyncio.Task] = set()
 
+# Same pattern for the long-running pipeline tasks themselves. asyncio's event
+# loop only keeps weak references to tasks; if no caller holds a strong ref,
+# the GC can collect a still-running task and abruptly cancel it mid-await.
+# That cancellation racing with SQLAlchemy's AsyncSession.__aexit__ is the
+# source of the "non-checked-in connection" warnings we were seeing in prod.
+_pending_pipelines: set[asyncio.Task] = set()
+
+
+def pin_background_task(task: asyncio.Task) -> None:
+    """Hold a strong reference to *task* so the GC can't reap it mid-flight.
+
+    Use this for any fire-and-forget asyncio task that lives longer than the
+    function that spawned it. Tasks self-remove on completion.
+    """
+    _pending_pipelines.add(task)
+    task.add_done_callback(_pending_pipelines.discard)
+
+
+def register_pipeline_task(
+    task: asyncio.Task,
+    job_id: uuid.UUID,
+    logger_: logging.Logger,
+    label: str = "Pipeline",
+) -> None:
+    """Pin the task so GC can't reap it, and wire up failure persistence."""
+    pin_background_task(task)
+    task.add_done_callback(make_failure_callback(job_id, logger_, label))
+
 
 async def mark_job_failed(job_id: uuid.UUID, exc: BaseException) -> None:
     """Set Job.status='failed' and record the error so the UI can surface it.

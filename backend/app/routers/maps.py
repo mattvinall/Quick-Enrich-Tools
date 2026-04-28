@@ -18,6 +18,7 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import AsyncSessionLocal, get_db
 from app.models import Job, JobResult
+from app.routers._job_errors import pin_background_task
 
 router = APIRouter(prefix="/maps", tags=["maps"])
 logger = logging.getLogger(__name__)
@@ -181,6 +182,7 @@ async def submit_maps_extraction(
             asyncio.create_task(_mark_job_failed_on_error(job.id, exc))
 
     task = asyncio.create_task(run_maps_pipeline({}, str(job.id)))
+    pin_background_task(task)
     task.add_done_callback(_on_done)
 
     new_token = create_token(email, str(job.id))

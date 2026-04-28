@@ -12,7 +12,7 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
-from app.routers._job_errors import make_failure_callback
+from app.routers._job_errors import register_pipeline_task
 from app.services.rate_limiter import check_rate_limit
 
 router = APIRouter(tags=["upload"])
@@ -153,7 +153,7 @@ async def upload_csv(
     logger = logging.getLogger(__name__)
 
     task = asyncio.create_task(run_pipeline({}, str(job.id)))
-    task.add_done_callback(make_failure_callback(job.id, logger, "Company Intel pipeline"))
+    register_pipeline_task(task, job.id, logger, "Company Intel pipeline")
 
     # --- return response ---
     new_token = create_token(email, str(job.id))

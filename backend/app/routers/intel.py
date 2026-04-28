@@ -19,7 +19,7 @@ from app.auth import create_token, verify_token
 from app.config import settings
 from app.database import get_db
 from app.models import Job, JobResult
-from app.routers._job_errors import make_failure_callback
+from app.routers._job_errors import register_pipeline_task
 
 router = APIRouter(prefix="/intel", tags=["intel"])
 logger = logging.getLogger(__name__)
@@ -131,7 +131,7 @@ async def submit_extraction(
     from app.workers.intel_pipeline import run_intel_pipeline
 
     task = asyncio.create_task(run_intel_pipeline({}, str(job.id)))
-    task.add_done_callback(make_failure_callback(job.id, logger, "Intel pipeline"))
+    register_pipeline_task(task, job.id, logger, "Intel pipeline")
 
     new_token = create_token(email, str(job.id))
     return {
