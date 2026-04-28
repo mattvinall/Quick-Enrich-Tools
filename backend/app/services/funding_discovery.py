@@ -210,20 +210,22 @@ async def _extract_funding_data(articles: list[dict[str, str]]) -> list[dict[str
 
 
 def _deduplicate_companies(entries: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Deduplicate by (company_name, funding_round, source_url).
+    """Deduplicate by (company_name, funding_round).
 
-    A single company can appear multiple times legitimately (different rounds,
-    different sources). Only collapse exact triplets. When the triplet collides,
-    keep the richer (more populated) entry.
+    The same funding event is typically covered by many outlets — including
+    source_url in the key created N rows for one company (one per article).
+    Collapsing on (name, round) merges them. A company genuinely announcing
+    two different rounds in the same window (rare; e.g. Seed + Series A) is
+    preserved because the round differs. When the pair collides, keep the
+    richer (more populated) entry.
     """
-    seen: dict[tuple[str, str, str], dict[str, object]] = {}
+    seen: dict[tuple[str, str], dict[str, object]] = {}
     for entry in entries:
         name = str(entry.get("company_name", "")).strip().lower()
         if not name:
             continue
         round_ = str(entry.get("funding_round", "")).strip().lower()
-        url = str(entry.get("source_url", "")).strip().lower()
-        key = (name, round_, url)
+        key = (name, round_)
         existing = seen.get(key)
         if existing is None:
             seen[key] = entry
@@ -245,7 +247,9 @@ async def discover_funded_companies(
 
     Results are cached for 1 hour.
     """
-    cache_key = make_cache_key("funding_discovery", str(hours))
+    # v2: dedup key changed from (name, round, url) → (name, round) to collapse
+    # multi-outlet coverage of the same funding event into one row.
+    cache_key = make_cache_key("funding_discovery", "v2", str(hours))
     cached = await cache_get(cache_key)
     if cached is not None:
         logger.info("FUNDING DISCOVERY CACHE HIT: %dh", hours)

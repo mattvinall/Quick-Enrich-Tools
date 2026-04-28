@@ -35,7 +35,7 @@ type BadgeVariant = 'success' | 'destructive' | 'warning' | 'secondary';
 function statusBadgeVariant(status: string): BadgeVariant {
   if (['found', 'normalized', 'enriched', 'extracted', 'crawled', 'g2_scraped'].includes(status)) return 'success';
   if (['not_found', 'scrape_failed'].includes(status)) return 'destructive';
-  if (['blocked'].includes(status)) return 'warning';
+  if (['blocked', 'extract_failed'].includes(status)) return 'warning';
   return 'secondary';
 }
 
@@ -52,6 +52,7 @@ function statusLabel(status: string): string {
     resolved: 'Resolved',
     crawled: 'Crawled',
     extracted: 'Extracted',
+    extract_failed: 'No intel',
     scrape_failed: 'Scrape Failed',
     g2_scraped: 'G2 Scraped',
   };
@@ -96,9 +97,12 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [isDone, setIsDone] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [pulsingIndices, setPulsingIndices] = useState<Set<number>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Track which row indices have already been animated
   const seenIndicesRef = useRef<Set<number>>(new Set());
+  // Track last-seen status per index to detect changes
+  const lastStatusRef = useRef<Map<number, string>>(new Map());
 
   useEffect(() => {
     async function fetchPreview() {
@@ -116,7 +120,22 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
 
         setPreviewError(null);
         const data: ApiPreviewResponse = await res.json();
-        setRows(data.rows ?? []);
+        const incoming = data.rows ?? [];
+
+        const changed = new Set<number>();
+        for (const row of incoming) {
+          const prev = lastStatusRef.current.get(row.index);
+          if (prev !== undefined && prev !== row.status) {
+            changed.add(row.index);
+          }
+          lastStatusRef.current.set(row.index, row.status);
+        }
+        if (changed.size > 0) {
+          setPulsingIndices(changed);
+          setTimeout(() => setPulsingIndices(new Set()), 900);
+        }
+
+        setRows(incoming);
 
         if (TERMINAL_STATUSES.has(data.status)) {
           setIsDone(true);
@@ -277,9 +296,19 @@ export default function LivePreview({ jobId, token, isProcessing }: LivePreviewP
                         )}
                       </td>
                       <td className="px-4 py-2.5">
-                        <Badge variant={statusBadgeVariant(row.status)}>
-                          {statusLabel(row.status)}
-                        </Badge>
+                        <motion.div
+                          key={`${row.index}-${row.status}`}
+                          initial={pulsingIndices.has(row.index)
+                            ? { scale: 0.92, opacity: 0.6 }
+                            : false}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ duration: 0.35, ease: 'easeOut' }}
+                          className="inline-block"
+                        >
+                          <Badge variant={statusBadgeVariant(row.status)}>
+                            {statusLabel(row.status)}
+                          </Badge>
+                        </motion.div>
                       </td>
                     </motion.tr>
                   ))}

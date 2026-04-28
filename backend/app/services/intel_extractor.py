@@ -96,6 +96,10 @@ async def _call_gemini(prompt: str) -> dict:
     """Call Gemini API directly for intel extraction."""
     import google.generativeai as genai
 
+    if not settings.gemini_api_key.strip():
+        logger.error("intel_extractor: GEMINI_API_KEY is empty — LLM extraction disabled")
+        return {}
+
     genai.configure(api_key=settings.gemini_api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -110,7 +114,22 @@ async def _call_gemini(prompt: str) -> dict:
     try:
         text = response.text
     except (ValueError, AttributeError):
-        # Safety-filtered or empty candidates — nothing usable
+        finish_reason = None
+        block_reason = None
+        try:
+            if response.candidates:
+                finish_reason = getattr(response.candidates[0], "finish_reason", None)
+            if hasattr(response, "prompt_feedback"):
+                block_reason = getattr(response.prompt_feedback, "block_reason", None)
+        except Exception:
+            pass
+        logger.warning(
+            "intel_extractor: Gemini returned no text (finish_reason=%s block_reason=%s)",
+            finish_reason, block_reason,
+        )
+        return {}
+    if not text or not text.strip():
+        logger.warning("intel_extractor: Gemini returned empty text body")
         return {}
     return json.loads(text)
 
@@ -149,7 +168,14 @@ async def extract_company_intel(
         return cached
 
     if not scraped_pages:
+        logger.info("INTEL SKIP (no scraped pages): %s", domain)
         return {}
+
+    total_chars = sum(len(t) for t in scraped_pages.values())
+    logger.info(
+        "INTEL EXTRACT: %s — %d pages, %d total chars, provider=%s",
+        domain, len(scraped_pages), total_chars, settings.llm_provider,
+    )
 
     prompt = _build_prompt(domain, scraped_pages, options)
 
@@ -167,11 +193,20 @@ async def extract_company_intel(
                 base_delay=1.0,
             )
 
+        if not result:
+            logger.warning("INTEL EMPTY: %s — LLM returned no fields", domain)
+        else:
+            populated = [k for k, v in result.items() if v]
+            logger.info("INTEL OK: %s — populated fields: %s", domain, populated)
+
         await cache_set(cache_key, result, settings.cache_ttl_days)
         return result
 
     except Exception as exc:
-        logger.warning("extract_company_intel failed for %s: %s", domain, exc)
+        logger.warning(
+            "INTEL FAIL: %s — %s: %s",
+            domain, type(exc).__name__, exc,
+        )
         return {}
 
 

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     scrape_concurrency: int = 30
     max_pages_per_site: int = 6
     scrape_timeout: int = 20
-    intel_extraction_concurrency: int = 10
+    intel_extraction_concurrency: int = 4  # Gemini Flash free tier ~10 RPM; 10 concurrent calls burst over the limit and silently 429
     cache_ttl_days: int = 7
     g2_scrape_concurrency: int = 5
     g2_max_pages_per_category: int = 500  # runaway-protection ceiling; 500 * 15/page = 7500 products, far beyond any real G2 category
