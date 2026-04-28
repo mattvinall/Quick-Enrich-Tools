@@ -68,7 +68,11 @@ There are two ways to run this codebase, and they handle API keys differently. T
 | Mode | What lives in `backend/.env` | What the user types into the UI |
 |---|---|---|
 | **Hosted** (quick-enrich-tools.vercel.app, gtm.quickenrich.io) | Only `GEMINI_API_KEY` + `RESEND_API_KEY` (server-side concerns). The Serper / Scrape.do / QuickEnrich slots are blank. | All three of `serper_api_key`, `scrape_do_api_key`, `quickenrich_api_key` per-job. Required. |
-| **Self-hosted** (`git clone` + run locally or on your own infra) | All five: Gemini, Serper, Scrape.do, QuickEnrich, optional Resend. | Nothing. Fields can stay empty; the worker falls back to `settings.<key>`. |
+| **Self-hosted** (`git clone` + run locally or on your own infra) | Gemini, Serper, Scrape.do, QuickEnrich. **Skip Resend** — you don't need email delivery on your own machine. | Nothing. Fields can stay empty; the worker falls back to `settings.<key>`. |
+
+**Resend is unneeded for self-hosters.** When you're running this on your own laptop or your own infra, you submit a job and download the CSV from the same in-app link a few seconds later — emailing it to yourself is dead weight. The code handles a missing `RESEND_API_KEY` gracefully (`backend/app/services/email_service.py:22-24` early-returns); leave it blank.
+
+**Known UX gap (not yet fixed):** the frontend's `EmailGate` phase still prompts every user for an email even when Resend isn't configured. Hosted-mode treats that as lead capture, but self-hosters get unnecessary friction. A follow-up is to gate `EmailGate` behind a `NEXT_PUBLIC_HOSTED_MODE` flag.
 
 **Why this split exists:** the hosted version is intentionally a lead magnet. Backend pays only for LLM (Gemini Flash, ~$0.10–0.20/job) and email delivery. Per-call services (Serper, Scrape.do, QuickEnrich) are pushed to the user via the in-app config UI. Self-hosters have no such constraint and put everything in `.env` once.
 

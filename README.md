@@ -54,6 +54,7 @@ You bring your own keys. The repo authors don't see any of it.
 | [Gemini](https://ai.google.dev) (or OpenAI) | yes | free tier covers small runs |
 | [Scrape.do](https://scrape.do) | strongly recommended | $29/mo entry tier |
 | [QuickEnrich](https://app.quickenrich.io/promo) | for contact enrichment | **50,000 free credits** with the link |
+| [Resend](https://resend.com) | usually skip self-hosted | only matters if you want CSVs emailed |
 | Postgres + Redis | yes | free via `docker compose` |
 
 > **Tip:** QuickEnrich is offering 50K free credits to new accounts via [app.quickenrich.io/promo](https://app.quickenrich.io/promo). That covers the contact-enrichment side of the pipeline for a long time at zero cost.
