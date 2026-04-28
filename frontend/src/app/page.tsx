@@ -422,24 +422,48 @@ function KeyPills({
       <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-ink/70 mr-1">
         Bring
       </span>
-      {required.map((kind) => (
-        <span
-          key={kind}
-          className="inline-flex items-center px-2 py-0.5 rounded-md bg-canvas border border-border-warm text-[11px] font-mono text-ink"
-        >
-          {API_KEY_META[kind].label}
-        </span>
-      ))}
-      {optional.map((kind) => (
-        <span
-          key={kind}
-          className="inline-flex items-center px-2 py-0.5 rounded-md border border-dashed border-border-warm text-[11px] font-mono text-muted-ink"
-          title="Optional — unlocks contact enrichment"
-        >
-          {API_KEY_META[kind].label}
-          <span className="ml-1 text-muted-ink/60">opt.</span>
-        </span>
-      ))}
+      {required.map((kind) => {
+        const isQuickenrich = kind === "quickenrich";
+        return (
+          <span
+            key={kind}
+            className={
+              isQuickenrich
+                ? "inline-flex items-center px-2 py-0.5 rounded-md bg-primary/10 border border-primary/30 text-[11px] font-mono text-primary"
+                : "inline-flex items-center px-2 py-0.5 rounded-md bg-canvas border border-border-warm text-[11px] font-mono text-ink"
+            }
+          >
+            {API_KEY_META[kind].label}
+          </span>
+        );
+      })}
+      {optional.map((kind) => {
+        const isQuickenrich = kind === "quickenrich";
+        return (
+          <span
+            key={kind}
+            className={
+              isQuickenrich
+                ? "inline-flex items-center px-2 py-0.5 rounded-md bg-primary/10 border border-primary/30 text-[11px] font-mono text-primary"
+                : "inline-flex items-center px-2 py-0.5 rounded-md border border-dashed border-border-warm text-[11px] font-mono text-muted-ink"
+            }
+            title={
+              isQuickenrich
+                ? "Optional — claim 50K free credits"
+                : "Optional"
+            }
+          >
+            {API_KEY_META[kind].label}
+            <span
+              className={
+                isQuickenrich ? "ml-1 text-primary/60" : "ml-1 text-muted-ink/60"
+              }
+            >
+              opt.
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 }
