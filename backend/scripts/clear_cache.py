@@ -49,6 +49,8 @@ KNOWN_PREFIXES = {
     "linkedin": "Phase 0 LinkedIn profile search",
     "serper": "Serper domain/company search",
     "scrape": "scrape.do fetched homepages",
+    "intel": "LLM extracted company intel (industry/description/etc.)",
+    "funding_discovery": "Funded-companies-today discovery results",
 }
 
 BATCH = 500  # keys per DEL call — Redis handles several thousand fine but 500 is polite

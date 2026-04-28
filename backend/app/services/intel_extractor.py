@@ -193,12 +193,15 @@ async def extract_company_intel(
                 base_delay=1.0,
             )
 
-        if not result:
-            logger.warning("INTEL EMPTY: %s — LLM returned no fields", domain)
-        else:
-            populated = [k for k, v in result.items() if v]
-            logger.info("INTEL OK: %s — populated fields: %s", domain, populated)
+        if not result or not any(result.values()):
+            # Don't cache empty/all-null extractions — a transient rate limit
+            # or network blip would otherwise lock in a failure for the full
+            # cache TTL (7 days) and prevent any retry from succeeding.
+            logger.warning("INTEL EMPTY: %s — LLM returned no fields (not cached)", domain)
+            return result
 
+        populated = [k for k, v in result.items() if v]
+        logger.info("INTEL OK: %s — populated fields: %s", domain, populated)
         await cache_set(cache_key, result, settings.cache_ttl_days)
         return result
 
