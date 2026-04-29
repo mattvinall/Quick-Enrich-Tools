@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     uploads_per_email_per_day: int = 50
     uploads_per_ip_per_day: int = 50
     downloads_per_job: int = 10
-    serper_concurrency: int = 50
+    serper_concurrency: int = 20
     verify_concurrency: int = 5
     normalize_concurrency: int = 50
     enrich_concurrency: int = 30
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     g2_max_total_companies: int = 50_000
     g2_cache_ttl_days: int = 3
     g2_serper_pages_per_query: int = 3  # pages of 100 organic results per G2 fallback query
-    linkedin_search_concurrency: int = 50
+    linkedin_search_concurrency: int = 20
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

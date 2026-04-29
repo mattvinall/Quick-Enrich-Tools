@@ -21,6 +21,7 @@ from app.routers import g2
 from app.routers import maps
 from app.routers import funding
 from app.routers import people
+from app.routers._job_errors import drain_pinned_tasks
 
 
 @asynccontextmanager
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
     yield
+    await drain_pinned_tasks()
     await engine.dispose()
 
 

@@ -92,6 +92,25 @@ async def mark_job_failed(job_id: uuid.UUID, exc: BaseException) -> None:
         )
 
 
+async def drain_pinned_tasks(timeout: float = 8.0) -> None:
+    """Wait for pinned background tasks to finish on graceful shutdown.
+
+    Cancels stragglers after the timeout. Called from the FastAPI lifespan.
+    """
+    snapshot = _pending_pipelines | _pending_failure_writes
+    if not snapshot:
+        return
+    done, pending = await asyncio.wait(snapshot, timeout=timeout)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    logger.info(
+        "drain_pinned_tasks: drained=%d cancelled=%d",
+        len(done), len(pending),
+    )
+
+
 def make_failure_callback(
     job_id: uuid.UUID,
     logger_: logging.Logger,

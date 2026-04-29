@@ -176,49 +176,53 @@ async def job_sse(
 
     async def event_stream() -> object:
         while True:
+            # Close the session before any yield/sleep so a client disconnect
+            # mid-stream can't abandon a checked-out asyncpg connection.
             async with AsyncSessionLocal() as session:
                 job_result = await session.execute(select(Job).where(Job.id == job_id))
                 job = job_result.scalar_one_or_none()
 
                 if job is None:
-                    data = json.dumps({"error": "Job not found"})
-                    yield f"data: {data}\n\n"
-                    return
-
-                found_count_result = await session.execute(
-                    select(func.count(JobResult.id)).where(
-                        JobResult.job_id == job_id,
-                        JobResult.normalized_domain.isnot(None),
+                    job_missing = True
+                    event_data = json.dumps({"error": "Job not found"})
+                    terminal = True
+                else:
+                    job_missing = False
+                    found_count_result = await session.execute(
+                        select(func.count(JobResult.id)).where(
+                            JobResult.job_id == job_id,
+                            JobResult.normalized_domain.isnot(None),
+                        )
                     )
-                )
-                found_count: int = found_count_result.scalar_one() or 0
+                    found_count: int = found_count_result.scalar_one() or 0
 
-                enriched_count_result = await session.execute(
-                    select(func.count(JobResult.id)).where(
-                        JobResult.job_id == job_id,
-                        JobResult.contacts.isnot(None),
+                    enriched_count_result = await session.execute(
+                        select(func.count(JobResult.id)).where(
+                            JobResult.job_id == job_id,
+                            JobResult.contacts.isnot(None),
+                        )
                     )
-                )
-                enriched_count: int = enriched_count_result.scalar_one() or 0
+                    enriched_count: int = enriched_count_result.scalar_one() or 0
 
-                # Send phase_progress as {current_phase: {done, total}} for frontend
-                phase_progress_out: dict = {}
-                if isinstance(job.phase_progress, dict) and job.current_phase:
-                    phase_progress_out = {job.current_phase: job.phase_progress}
+                    phase_progress_out: dict = {}
+                    if isinstance(job.phase_progress, dict) and job.current_phase:
+                        phase_progress_out = {job.current_phase: job.phase_progress}
 
-                event_data = json.dumps({
-                    "status": job.status,
-                    "processed_rows": job.processed_rows,
-                    "total_rows": job.total_rows,
-                    "current_phase": job.current_phase,
-                    "phase_progress": phase_progress_out,
-                    "found_count": found_count,
-                    "enriched_count": enriched_count,
-                })
-                yield f"data: {event_data}\n\n"
+                    event_data = json.dumps({
+                        "status": job.status,
+                        "processed_rows": job.processed_rows,
+                        "total_rows": job.total_rows,
+                        "current_phase": job.current_phase,
+                        "phase_progress": phase_progress_out,
+                        "found_count": found_count,
+                        "enriched_count": enriched_count,
+                    })
+                    terminal = job.status in ("completed", "failed")
 
-                if job.status in ("completed", "failed"):
-                    return
+            yield f"data: {event_data}\n\n"
+
+            if job_missing or terminal:
+                return
 
             await asyncio.sleep(2)
 

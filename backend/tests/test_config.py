@@ -10,7 +10,7 @@ def test_default_settings_have_pipeline_fields():
     )
     assert s.verify_concurrency == 5
     assert s.pipeline_batch_size == 200
-    assert s.serper_concurrency == 50
+    assert s.serper_concurrency == 20
     assert s.enrich_concurrency == 30
     # Removed settings should not exist
     assert not hasattr(s, "llm_concurrency")
